@@ -1,0 +1,51 @@
+# Model settings
+model_name: "stable-diffusion-v1-5"
+num_inference_steps: 50
+
+# Optimization settings
+optimizer: "adamw"
+lr: 1.0e-5
+beta1: 0.9
+beta2: 0.95
+batch_size: 5
+accum_grad_steps: 25
+gradient_clip: 100.0
+gradient_clip_algorithm: "norm"
+
+# Training strategy
+eta: 1.0
+precision: "32-true"
+max_epochs: 100000
+num_timesteps_to_load: 50
+num_timesteps_to_load_train: 4
+
+# Paths
+save_dir: "checkpoints"
+training_prompt_path: "prompt_files/refl_data_single_prompt_993.json"
+validation_prompt_path: "prompt_files/benchmark_single_prompt_993.json"
+
+# Scheduler settings
+scheduler: "linear_warmup"
+warmup_steps: 20
+
+# Model-specific settings
+beta_start: 0.002
+beta_end: 0.009
+reward_multiplier: 25.0
+guidance_reward_fn: "ImageReward"
+per_sample_threshold_quantile: 0.9
+learn_offset: false
+
+# Gradient smoothing settings
+smooth_gradients: false
+smooth_samples: 20
+smooth_noise_std: 0.02
+smooth_clipping_quantile: 0.85
+
+# Misc
+use_tf32: true
+seed: 0
+wandb_project: "AM-SD15"
+checkpoint_every_n_epochs: 1
+val_check_interval: 0.5
+resume_from_checkpoint: null

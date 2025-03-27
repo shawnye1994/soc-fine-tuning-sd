@@ -1,0 +1,7 @@
+checkpoints/
+checkpoints_cluster/
+models/
+src/__pycache__/
+cluster_yaml_files/
+.amltignore
+ViT-L-14.pt

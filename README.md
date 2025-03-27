@@ -1,14 +1,42 @@
-# Project
+# Adjoint Matching for Stable Diffusion
 
-> This repo has been populated by an initial template to help get you started. Please
-> make sure to update the content to build a great experience for community-building.
+## Overview
+This repository provides an implementation of Adjoint Matching (AM) for Stable Diffusion 1.5. It adds specialized trainers, custom schedulers, and prompt-based dataloaders.
 
-As the maintainer of this project, please make a few updates:
+## Features
+- Adjoint Matching trainer class (AMTrainer), which can be repurposed for other SOC fine-tuning algorithms
+- Custom DDIM scheduler (CustomDDIMScheduler)
+- PromptDataModule for training and evaluation prompts
+- Evaluation scripts for checkpoint metrics
 
-- Improving this README.MD file to provide a great experience
-- Updating SUPPORT.MD with content about this project's support experience
-- Understanding the security reporting process in SECURITY.MD
-- Remove this section from the README
+## Quick Start
+
+### Installation
+```
+git clone https://github.com/your-username/adjoint-matching-SD.git
+cd adjoint-matching-SD
+conda create -n AM-env python=3.10.16
+conda activate AM-env
+pip install -r requirements.txt
+```
+
+### Training
+```
+python src/train.py --config configs/multi_prompt.yaml
+```
+
+### Evaluation
+To evaluate the base model:
+```
+python src/evaluate_checkpoint.py --num_samples_per_prompt 10 --ckpt base_model --config configs/multi_prompt.yaml
+```
+To evaluate a checkpoint:
+```
+python src/evaluate_checkpoint.py --num_samples_per_prompt 10 --ckpt path/to/model.ckpt
+```
+
+### Checkpoints and Logs
+Saved to the directory set by save_dir in your config.
 
 ## Contributing
 
