@@ -4,7 +4,7 @@ num_inference_steps: 50
 
 # Optimization settings
 optimizer: "adamw"
-lr: 1.0e-5
+lr: 3.0e-6
 beta1: 0.9
 beta2: 0.95
 batch_size: 5
@@ -50,14 +50,14 @@ smooth_clipping_quantile: 0.85
 # Misc
 use_tf32: true
 seed: 0
-wandb_project: "AM-SD15-prompt-993"
+wandb_project: "AM-SD15-buffer"
 checkpoint_every_n_epochs: 1
 val_check_interval: 0.1
 resume_from_checkpoint: null
 verbose: false
 
 # Buffer
-use_buffer: false
+use_buffer: true
 buffer_device: cpu
 buffer_size: 100
 passes_per_buffer: 10  # Number of training passes through each buffer before refreshing

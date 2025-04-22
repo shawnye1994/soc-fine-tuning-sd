@@ -20,12 +20,13 @@ def load_config(config_path=None, override_args=None):
     # Allow overriding specific config values from command line
     parser.add_argument("--lr", type=float, help="Learning rate")
     parser.add_argument("--batch_size", type=int, help="Batch size")
-    parser.add_argument("--precision", type=str, help="Training precision (32-true, 16, bf16)")
+    parser.add_argument("--precision", type=str, help="Training precision (32, 16, bf16)")
     parser.add_argument("--wandb_project", type=str, help="W&B project name")
     parser.add_argument("--resume_from_checkpoint", type=str, help="Path to checkpoint to resume from")
     parser.add_argument("--seed", type=int, help="Random seed")
     parser.add_argument("--save_dir", type=str, help="Directory to save outputs")
-    parser.add_argument("--verbose", action='store_true', help="Enable verbose logging")
+    parser.add_argument("--verbose", type=str, help="Enable verbose logging")
+    parser.add_argument("--use_buffer", type=bool, help="Use buffer")
     
     args = parser.parse_args(override_args)
     
@@ -53,5 +54,10 @@ def load_config(config_path=None, override_args=None):
     
     # Store the config file path for reference
     config.config_path = config_path
+
+    # Only use guidance in adjoint computation and control computation if guidance scale is not 1.0
+    # and the respective flags are set
+    config.cfg_adjoint = config.guidance_scale != 1.0 and config.guidance_in_adjoint_computation
+    config.cfg_control = config.guidance_scale != 1.0 and config.guidance_in_control_computation
     
     return config

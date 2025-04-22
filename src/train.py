@@ -5,8 +5,9 @@ import pytorch_lightning as pl
 from pytorch_lightning.callbacks import LearningRateMonitor, ModelCheckpoint
 from pytorch_lightning.loggers import WandbLogger
 
-from prompt_datamodule import PromptDataModule
-from am_trainer import AMTrainer
+from prompt_datamodule import PromptDataModule, BufferPromptDataModule
+from trainers.am_trainer import AMTrainer
+from trainers.buffer_am_trainer import BufferAMTrainer
 from config_utils import load_config
 from core_utils import ConfigViewerCallback
 
@@ -15,7 +16,7 @@ def main():
     # Parse command line arguments
     config = load_config()
 
-    run_name = f"rm{config.reward_multiplier}_smooth{config.smooth_gradients}"
+    run_name = f"rm{config.reward_multiplier}_smooth{config.smooth_gradients}_buffer{config.use_buffer}"
      
     print(f"Run name: {run_name}")
     
@@ -67,19 +68,34 @@ def main():
     )
 
     pl.seed_everything(config.seed)
-    
-    if config.resume_from_checkpoint is not None:
-        distiller = AMTrainer.load_from_checkpoint(config.resume_from_checkpoint, config=config)
+
+    if config.use_buffer:
+        datamodule = BufferPromptDataModule(
+            batch_size=config.batch_size,
+            buffer_size=config.buffer_size,
+            training_prompt_path=config.training_prompt_path,
+            validation_prompt_path=config.validation_prompt_path,
+        )
     else:
-        distiller = AMTrainer(config=config)
+        datamodule = PromptDataModule(
+            batch_size=config.batch_size,
+            training_prompt_path=config.training_prompt_path,
+            validation_prompt_path=config.validation_prompt_path,
+        )
+    config.iterations_per_epoch = len(datamodule.train_dataloader())
+
+    if config.resume_from_checkpoint is not None:
+        if config.use_buffer:
+            am_trainer = BufferAMTrainer.load_from_checkpoint(config.resume_from_checkpoint, config=config)
+        else:
+            am_trainer = AMTrainer.load_from_checkpoint(config.resume_from_checkpoint, config=config)
+    else:
+        if config.use_buffer:
+            am_trainer = BufferAMTrainer(config=config)
+        else: 
+            am_trainer = AMTrainer(config=config)
 
     lr_monitor = LearningRateMonitor(logging_interval="step")
-
-    datamodule = PromptDataModule(
-        batch_size=config.batch_size,
-        training_prompt_path=config.training_prompt_path,
-        validation_prompt_path=config.validation_prompt_path,
-    )
 
     trainer = pl.Trainer(
         logger=wandb_logger,
@@ -106,7 +122,7 @@ def main():
     print(f"accumulate_grad_batches: {trainer.accumulate_grad_batches}")
     print(f"limit_val_batches: {trainer.limit_val_batches}")
     print(f"check_val_every_n_epoch: {trainer.check_val_every_n_epoch}")
-    trainer.fit(distiller, datamodule)
+    trainer.fit(am_trainer, datamodule)
 
 
 if __name__ == "__main__":

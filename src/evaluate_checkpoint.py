@@ -1,11 +1,13 @@
 import argparse
 import yaml
+import os
+from pathlib import Path
 
 import torch
 from pytorch_lightning import seed_everything
 
 # Import your trainer and data module
-from src.am_trainer import AMTrainer
+from src.trainers.am_trainer import AMTrainer
 from src.prompt_datamodule import PromptDataModule
 from src.metrics import (
     do_image_reward,
@@ -15,8 +17,29 @@ from src.metrics import (
 )
 from types import SimpleNamespace
 
+def get_eval_output_path(ckpt_path, eta, beta_start, beta_end, timestep_spacing, num_samples_per_prompt, guidance_scale):
+    """Generate output file path for evaluation results"""
+    # Create the checkpoint_evals directory if it doesn't exist
+    os.makedirs("checkpoint_evals", exist_ok=True)
+    
+    # Extract just the filename from the checkpoint path
+    if ckpt_path == "base_model":
+        ckpt_name = "base_model"
+    else:
+        # Get the checkpoint filename
+        ckpt_file = Path(ckpt_path).name
+        # Get the parent folder name
+        parent_folder = Path(ckpt_path).parent.name
+        # Combine parent folder and checkpoint name
+        ckpt_name = f"{parent_folder}_{Path(ckpt_file).stem}"
+    
+    # Create a filename with the parameters
+    filename = f"{ckpt_name}_eta{eta}_samples{num_samples_per_prompt}_beta_start{beta_start}_beta_end{beta_end}_timestep_spacing{timestep_spacing}_guidance_scale{guidance_scale}.txt"
+    return os.path.join("checkpoint_evals", filename)
+
 @torch.no_grad()
 def evaluate_checkpoint(ckpt_path, config, device="cuda", eta=1.0, num_samples_per_prompt=5):
+    output_lines = []
     seed_everything(config.seed)
 
     # Load data
@@ -49,7 +72,7 @@ def evaluate_checkpoint(ckpt_path, config, device="cuda", eta=1.0, num_samples_p
     
     # List to store DreamSim variance per prompt
     prompt_avg_ds = []
-
+    
     for batch_idx, batch in enumerate(val_dataloader):
         prompt_texts = batch["text"]
         batch_size = len(prompt_texts)
@@ -59,6 +82,11 @@ def evaluate_checkpoint(ckpt_path, config, device="cuda", eta=1.0, num_samples_p
         for p in prompt_texts:
             repeated_prompts.extend([p] * num_samples_per_prompt)
 
+        # Add optional parameters to kwargs
+        kwargs = {}
+        if hasattr(config, "guidance_scale"):
+            kwargs["guidance_scale"] = config.guidance_scale
+
         # Generate images in one call
         result = model.soc_pipeline(
             repeated_prompts,
@@ -67,8 +95,9 @@ def evaluate_checkpoint(ckpt_path, config, device="cuda", eta=1.0, num_samples_p
             output_type="pil",
             device=device,
             store_traj=False,
-            use_custom_scheduler=True,
+            use_soc_scheduler=True,
             learn_offset=config.learn_offset,
+            **kwargs,
         )
         images = result.images
 
@@ -104,7 +133,7 @@ def evaluate_checkpoint(ckpt_path, config, device="cuda", eta=1.0, num_samples_p
             #   3) Return (variance, variance_variance)
             ds_var, _ = do_dreamsim_diversity(prompt_images, device=device)
             prompt_avg_ds.append(ds_var)
-
+            
     # Compute overall means (across prompt-level means)
     if len(prompt_avg_ir) > 0:
         ir_tensor = torch.tensor(prompt_avg_ir)
@@ -134,11 +163,13 @@ def evaluate_checkpoint(ckpt_path, config, device="cuda", eta=1.0, num_samples_p
         avg_ir = avg_cs = avg_hp = avg_ds = 0.0
         se_ir = se_cs = se_hp = se_ds = 0.0
 
-    print(f"Checkpoint: {ckpt_path}")
-    print(f"Avg ImageReward : {avg_ir:.4f} ± {se_ir:.4f}")
-    print(f"Avg CLIP-Score  : {avg_cs:.4f} ± {se_cs:.4f}")
-    print(f"Avg HPS         : {avg_hp:.4f} ± {se_hp:.4f}")
-    print(f"Avg DreamSim Var: {avg_ds:.4f} ± {se_ds:.4f}")
+    output_lines.append(f"Checkpoint: {ckpt_path}")
+    output_lines.append(f"Avg ImageReward : {avg_ir:.4f} ± {se_ir:.4f}")
+    output_lines.append(f"Avg CLIP-Score  : {avg_cs:.4f} ± {se_cs:.4f}")
+    output_lines.append(f"Avg HPS         : {avg_hp:.4f} ± {se_hp:.4f}")
+    output_lines.append(f"Avg DreamSim Var: {avg_ds:.4f} ± {se_ds:.4f}")
+    
+    return '\n'.join(output_lines)
 
 def load_config_from_checkpoint(ckpt_path):
     """Extract configuration from checkpoint file"""
@@ -161,37 +192,85 @@ def load_config_from_checkpoint(ckpt_path):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--ckpt", type=str, required=True, help="Path to checkpoint .ckpt file, or 'base_model' for base model")
-    parser.add_argument("--eta", type=float, default=1.0, help="Sampling noise multiplier")
+    parser.add_argument("--eta", type=float, default=None, help="Sampling noise multiplier")
+    parser.add_argument("--guidance_scale", type=float, default=None, help="Sampling noise multiplier")
+    parser.add_argument("--beta_start", type=float, default=None, help="Beta start for sampling") # the Huggingface default is 0.00085, fine-tuning value is 0.002
+    parser.add_argument("--beta_end", type=float, default=None, help="Beta end for sampling") # the Huggingface default is 0.012, fine-tuning value is 0.009
+    parser.add_argument("--timestep_spacing", type=str, default=None, help="options: leading, trailing, linspace") # the Huggingface default is leading, fine-tuning value is trailing
     parser.add_argument("--num_samples_per_prompt", type=int, default=1, help="Number of samples generated per prompt")
     parser.add_argument("--config", type=str, required=False, help="Path to config .yaml file")
     parser.add_argument("--device", type=str, default="cuda", help="Device: cuda or cpu")
     args = parser.parse_args()
 
-    # Load config appropriately
-    if args.ckpt == "base_model":
-        # Base model requires explicit config
-        if not args.config:
-            raise ValueError("Config file must be provided when evaluating base model")
-        print(f"Loading config from file: {args.config}")
-        with open(args.config, "r") as f:
-            config_dict = yaml.safe_load(f)
-        config = SimpleNamespace(**config_dict)
+    # Determine the output file path
+    output_file = get_eval_output_path(
+        args.ckpt, 
+        args.eta, 
+        args.beta_start, 
+        args.beta_end, 
+        args.timestep_spacing, 
+        args.num_samples_per_prompt,
+        args.guidance_scale,
+    )
+
+    # Check if evaluation already exists
+    if os.path.exists(output_file):
+        print(f"Evaluation already exists: {output_file}")
+        print("Displaying existing evaluation results:")
+        with open(output_file, 'r') as f:
+            print(f.read())
     else:
-        # First try to load config from checkpoint
-        config = load_config_from_checkpoint(args.ckpt)
-        
-        # If not found or provided explicitly, load from file
-        if config is None and args.config:
+        # Load config appropriately
+        if args.ckpt == "base_model":
+            # Base model requires explicit config
+            if not args.config:
+                raise ValueError("Config file must be provided when evaluating base model")
             print(f"Loading config from file: {args.config}")
             with open(args.config, "r") as f:
                 config_dict = yaml.safe_load(f)
             config = SimpleNamespace(**config_dict)
-        elif config is None:
-            raise ValueError("No config found in checkpoint and no config file provided")
+        else:
+            # First try to load config from checkpoint
+            config = load_config_from_checkpoint(args.ckpt)
+            
+            # If not found or provided explicitly, load from file
+            if config is None and args.config:
+                print(f"Loading config from file: {args.config}")
+                with open(args.config, "r") as f:
+                    config_dict = yaml.safe_load(f)
+                config = SimpleNamespace(**config_dict)
+            elif config is None:
+                raise ValueError("No config found in checkpoint and no config file provided")
+            
+        # Override config parameters
+        if args.eta is not None:
+            config.eta = args.eta
 
-    evaluate_checkpoint(args.ckpt, 
-                        config, 
-                        device=args.device, 
-                        eta=args.eta, 
-                        num_samples_per_prompt=args.num_samples_per_prompt
-                        )
+        if args.guidance_scale is not None:
+            config.guidance_scale = args.guidance_scale 
+
+        if args.beta_start is not None:
+            config.beta_start = args.beta_start
+
+        if args.beta_end is not None:
+            config.beta_end = args.beta_end
+
+        if args.timestep_spacing is not None:
+            config.timestep_spacing = args.timestep_spacing
+
+        # Run evaluation and get output
+        eval_output = evaluate_checkpoint(
+            args.ckpt, 
+            config, 
+            device=args.device, 
+            eta=args.eta, 
+            num_samples_per_prompt=args.num_samples_per_prompt
+        )
+        
+        # Print and save the output
+        print(eval_output)
+        
+        # Save to file
+        with open(output_file, 'w') as f:
+            f.write(eval_output)
+        print(f"Evaluation results saved to: {output_file}")

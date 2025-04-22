@@ -217,10 +217,12 @@ class SOCStableDiffusionPipeline(
             ]
         ] = None,
         callback_on_step_end_tensor_inputs: List[str] = ["latents"],
-        use_custom_scheduler: bool = False,
+        use_soc_scheduler: bool = False,
         use_init_model: bool = False,
         learn_offset: bool = False,
         store_traj: bool = False,
+        store_noise: bool = False,
+        store_noise_pred: bool = False,
         **kwargs,
     ):
         r"""
@@ -298,8 +300,8 @@ class SOCStableDiffusionPipeline(
                 The list of tensor inputs for the `callback_on_step_end` function. The tensors specified in the list
                 will be passed as `callback_kwargs` argument. You will only be able to include variables listed in the
                 `._callback_tensor_inputs` attribute of your pipeline class.
-            use_custom_scheduler (`bool`, *optional*, defaults to `False`):
-                Whether the scheduler is of the class `CustomDDIMScheduler`. Used for Adjoint Matching training.
+            use_soc_scheduler (`bool`, *optional*, defaults to `False`):
+                Whether the scheduler is of the class `SOCDDIMScheduler`. Used for Adjoint Matching training.
             use_init_model (`bool`, *optional*, defaults to `False`):
                 Use self.unet_init instead of self.unet.
             learn_offset (`bool`, *optional*, defaults to `False`):
@@ -307,6 +309,10 @@ class SOCStableDiffusionPipeline(
                 self.unet outputs the fine-tuned model. 
             store_traj (`bool`, *optional*, defaults to `False`):
                 True if the trajectory of the latents is stored, False otherwise.
+            store_noise (`bool`, *optional*, defaults to `False`):
+                True if the noise samples for each step are stored, False otherwise.
+            store_noise_pred (`bool`, *optional*, defaults to `False`):
+                True if the noise predictions for each step are stored, False otherwise.
 
         Examples:
 
@@ -449,10 +455,9 @@ class SOCStableDiffusionPipeline(
             len(latents),
             len(prompt),
         )
-        if store_traj:
-            trajectories = {i: latents[i].unsqueeze(0) for i in range(len(latents))}
-        else:
-            trajectories = None
+        trajectories = {i: latents[i].unsqueeze(0) for i in range(len(latents))} if store_traj else None
+        noises = {i: torch.zeros_like(latents[i]).unsqueeze(0) for i in range(len(latents))} if store_noise else None
+        noise_preds = {i: torch.zeros_like(latents[i]).unsqueeze(0) for i in range(len(latents))} if store_noise_pred else None
 
         # 7. Denoising loop
         num_warmup_steps = len(timesteps) - num_inference_steps * self.scheduler.order
@@ -556,7 +561,7 @@ class SOCStableDiffusionPipeline(
                 # compute the previous noisy sample x_t -> x_t-1
 
                 # SOC Fine-tuning Change
-                if use_custom_scheduler:
+                if use_soc_scheduler:
                     step_dict = self.scheduler.step(
                         noise_pred, None, t, latents, **extra_step_kwargs, return_dict=True
                     )
@@ -568,10 +573,20 @@ class SOCStableDiffusionPipeline(
                 latents = step_dict["prev_sample"]
 
                 # SOC Fine-tuning Change
-                if trajectories is not None:
+                if store_traj:
                     for idx in range(len(prompt)):
                         trajectories[idx] = torch.cat(
                             (trajectories[idx], latents[idx].unsqueeze(0)), dim=0
+                        )
+                if store_noise:
+                    for idx in range(len(prompt)):
+                        noises[idx] = torch.cat(
+                            (noises[idx], step_dict["variance_noise"][idx].unsqueeze(0)), dim=0
+                        )
+                if store_noise_pred:
+                    for idx in range(len(prompt)):
+                        noise_preds[idx] = torch.cat(
+                            (noise_preds[idx], noise_pred[idx].unsqueeze(0)), dim=0
                         )
 
                 if callback_on_step_end is not None:
@@ -624,7 +639,11 @@ class SOCStableDiffusionPipeline(
             )
         else:
             trajectories = torch.stack(list(trajectories.values()), dim=0)
-            return image, trajectories, positive_prompt_embeds
+            if store_noise:
+                noises = torch.stack(list(noises.values()), dim=0)[:, 1:, ...]
+            if store_noise_pred:
+                noise_preds = torch.stack(list(noise_preds.values()), dim=0)[:, 1:, ...]
+            return image, noises, noise_preds, trajectories, positive_prompt_embeds, negative_prompt_embeds
 
 
 def latent_to_decode(*, model, output_type, latents):

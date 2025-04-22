@@ -8,7 +8,7 @@ from typing import Optional, Tuple, Union
 
 @dataclass
 # Copied from diffusers.schedulers.scheduling_ddpm.DDPMSchedulerOutput with DDPM->DDIM
-class CustomDDIMSchedulerOutput(BaseOutput):
+class SOCDDIMSchedulerOutput(BaseOutput):
     """
     Custom output class for the scheduler's `step` function output.
 
@@ -32,11 +32,13 @@ class CustomDDIMSchedulerOutput(BaseOutput):
     # The next two attributes are not in DDIMSchedulerOutput
     prev_sample_diff: Optional[torch.Tensor] = None
     std_dev_t: Optional[torch.FloatTensor] = None
+    variance_noise: Optional[torch.FloatTensor] = None
 
-class CustomDDIMScheduler(DDIMScheduler):
+class SOCDDIMScheduler(DDIMScheduler):
     """
-    `CustomDDIMScheduler` is a modification of `DDIMScheduler` where the `step` function takes in `model_output` as well
-    as `model_output_init` (the output of the original model).
+    `SOCDDIMScheduler` is a modification of `DDIMScheduler` where the `step` function takes in `model_output` as well
+    as `model_output_init` (the output of the original model), as well as other changes tailored for stochastic optimal
+    control fine-tuning. 
 
     `DDPMScheduler` explores the connections between denoising score matching and Langevin dynamics sampling.
 
@@ -107,7 +109,7 @@ class CustomDDIMScheduler(DDIMScheduler):
         generator=None,
         variance_noise: Optional[torch.Tensor] = None,
         return_dict: bool = True,
-    ) -> Union[CustomDDIMSchedulerOutput, Tuple]:
+    ) -> Union[SOCDDIMSchedulerOutput, Tuple]:
         """
         Predict the sample from the previous timestep by reversing the SDE. This function propagates the diffusion
         process from the learned model outputs (most often the predicted noise).
@@ -272,12 +274,14 @@ class CustomDDIMScheduler(DDIMScheduler):
                 prev_sample,
                 pred_original_sample,
                 prev_sample_diff,
-                std_dev_t
+                std_dev_t,
+                variance_noise,
             )
 
-        return CustomDDIMSchedulerOutput(
+        return SOCDDIMSchedulerOutput(
             prev_sample=prev_sample, 
             pred_original_sample=pred_original_sample,
             prev_sample_diff=prev_sample_diff,
-            std_dev_t=std_dev_t
+            std_dev_t=std_dev_t,
+            variance_noise=variance_noise,
         )
