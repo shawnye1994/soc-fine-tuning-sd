@@ -1,7 +1,7 @@
-# Adjoint Matching for Stable Diffusion
+# Stochastic Optimal Control Fine-Tuning of Stable Diffusion
 
 ## Overview
-This repository provides an implementation of reward fine-tuning methods for Stable Diffusion 1.5 based on stochastic optimal control (SOC), including [Adjoint Matching](https://openreview.net/forum?id=xQBRrtQM8u). It adds specialized trainers, custom schedulers, and prompt-based dataloaders.
+This repository provides an implementation of reward fine-tuning methods for Stable Diffusion 1.5 based on stochastic optimal control (SOC), focusing on [Adjoint Matching](https://openreview.net/forum?id=xQBRrtQM8u). It adds specialized trainers, custom schedulers, and prompt-based dataloaders.
 
 ## Features
 - Stochastic Optimal Control trainer (SOCTrainer): general purpose class that can be used to define child classes for specific fine-tuning methods 
