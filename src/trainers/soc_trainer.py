@@ -102,7 +102,7 @@ class SOCTrainer(pl.LightningModule):
         self.reward_fn = lambda x, prompt: reward_function(
             x, prompt, 
             model=self.soc_pipeline, 
-            guidance_reward_fn=self.config.guidance_reward_fn, 
+            reward_func=self.config.reward_func, 
             verbose=self.config.verbose
         )
 

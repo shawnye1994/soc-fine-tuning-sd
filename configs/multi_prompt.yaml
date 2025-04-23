@@ -32,7 +32,7 @@ warmup_steps: 20
 beta_start: 0.002
 beta_end: 0.009
 reward_multiplier: 100.0
-guidance_reward_fn: "ImageReward"
+reward_func: "ImageReward"
 guidance_scale: 7.5
 guidance_in_adjoint_computation: false
 guidance_in_control_computation: false

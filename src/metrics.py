@@ -15,7 +15,7 @@ REWARDS_DICT = {
 }
 
 
-# Returns the reward function based on the guidance_reward_fn name
+# Returns the reward function based on the reward function name
 def get_reward_function(reward_name, images, prompts):
     if reward_name == "ImageReward":
         return do_image_reward(images=images, prompts=prompts)
@@ -235,7 +235,7 @@ def do_eval(*, prompt, images, metrics_to_compute):
 
     return results
 
-def reward_function(x, prompt, model, guidance_reward_fn="ImageReward", use_no_grad=False, use_score_from_prompt_batched=True, verbose=False):
+def reward_function(x, prompt, model, reward_func="ImageReward", use_no_grad=False, use_score_from_prompt_batched=True, verbose=False):
     """
     Computes reward values for generated images using selected reward model.
     
@@ -243,7 +243,7 @@ def reward_function(x, prompt, model, guidance_reward_fn="ImageReward", use_no_g
         x: Tensor of decoded images to evaluate
         prompt: Text prompts corresponding to images
         model: Model containing image processor for post-processing
-        guidance_reward_fn: Which reward function to use ("ImageReward", "Clip-Score", or "HumanPreference")
+        reward_func: Which reward function to use ("ImageReward", "Clip-Score", or "HumanPreference")
         use_no_grad: Whether to disable gradient tracking
         use_score_from_prompt_batched: For ImageReward, whether to use batched scoring
         
@@ -254,19 +254,19 @@ def reward_function(x, prompt, model, guidance_reward_fn="ImageReward", use_no_g
     imagesx = model.image_processor.postprocess(x, output_type="pt")
     imagesx = [image for image in imagesx]
 
-    if guidance_reward_fn == "ImageReward":
+    if reward_func == "ImageReward":
         rewards = do_image_reward(
             images=imagesx, 
             prompts=prompt, 
             use_no_grad=use_no_grad, 
             use_score_from_prompt_batched=use_score_from_prompt_batched,
         )
-    elif guidance_reward_fn == "Clip-Score":
+    elif reward_func == "Clip-Score":
         rewards = do_clip_score(images=imagesx, prompts=prompt)
-    elif guidance_reward_fn == "HumanPreference":
+    elif reward_func == "HumanPreference":
         rewards = do_human_preference_score(images=imagesx, prompts=prompt)
     else:
-        raise ValueError(f"Unknown metric: {guidance_reward_fn}")
+        raise ValueError(f"Unknown metric: {reward_func}")
 
     if use_no_grad:
         return torch.tensor(rewards).to(x.device)

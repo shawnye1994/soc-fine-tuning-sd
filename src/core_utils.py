@@ -3,6 +3,8 @@ Utility functions for the SOC pipeline.
 """
 
 import torch
+import torch.nn as nn
+import torch.nn.init as init
 import numpy as np
 import json
 from diffusers import DDIMScheduler
@@ -137,6 +139,13 @@ def torchvision_grid(images, nrow=8):
     grid = grid.unsqueeze(0)
     grid = grid.numpy().astype(np.uint8)
     return grid
+
+def reinitialize_last_layer(layer, mean=0.0, std=0.01):
+    if isinstance(layer, nn.Conv2d):
+        init.normal_(layer.weight, mean=mean, std=std)
+        # Optionally, set bias to a small constant (or zero)
+        if layer.bias is not None:
+            init.constant_(layer.bias, 0.0)
 
 class ConfigViewerCallback(pl.Callback):
     def on_fit_start(self, trainer, pl_module):
