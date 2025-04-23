@@ -15,10 +15,10 @@ This repository provides an implementation of reward fine-tuning methods for Sta
 
 ### Installation
 ```
-git clone https://github.com/your-username/adjoint-matching-SD.git
-cd adjoint-matching-SD
-conda create -n AM-env python=3.10.16
-conda activate AM-env
+git clone https://github.com/microsoft/soc-fine-tuning-sd.git
+cd soc-fine-tuning-sd
+conda create -n soc-env python=3.10.16
+conda activate soc-env
 pip install -r requirements.txt
 ```
 
