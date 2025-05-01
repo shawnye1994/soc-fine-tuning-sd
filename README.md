@@ -114,6 +114,10 @@ url={https://openreview.net/forum?id=xQBRrtQM8u}
 }
 ```
 
+## Acknowledgement
+
+This codebase was developed relying on valuable feedback from Ricky T. Q. Chen, Dinghuai Zhang, Raghav Singhal, Denis Blessing, Julius Berner, Lorenz Richter, and David Jin.
+
 ## Contributing
 
 This project welcomes contributions and suggestions.  Most contributions require you to agree to a
