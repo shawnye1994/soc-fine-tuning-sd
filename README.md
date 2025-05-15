@@ -35,11 +35,11 @@ python src/train.py --config configs/multi_prompt_buffer.yaml
 ### Evaluation
 To evaluate the base model:
 ```
-python src/evaluate_checkpoint.py --num_samples_per_prompt 10 --ckpt base_model --config configs/multi_prompt.yaml
+python src/evaluate_checkpoint.py --num_samples_per_prompt 10 --ckpt base_model --config configs/multi_prompt.yaml --eta 0.0
 ```
 To evaluate a checkpoint:
 ```
-python src/evaluate_checkpoint.py --num_samples_per_prompt 10 --ckpt path/to/model.ckpt
+python src/evaluate_checkpoint.py --num_samples_per_prompt 10 --ckpt path/to/model.ckpt --eta 0.0
 ```
 
 ### Checkpoints and Logs
