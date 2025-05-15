@@ -263,7 +263,7 @@ if __name__ == "__main__":
             args.ckpt, 
             config, 
             device=args.device, 
-            eta=args.eta, 
+            eta=config.eta, 
             num_samples_per_prompt=args.num_samples_per_prompt
         )
         
