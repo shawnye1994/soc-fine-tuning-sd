@@ -8,9 +8,9 @@ import torch
 from dataclasses import dataclass
 import numpy as np
 import inspect
-from diffusers.utils.torch_utils import randn_tensor
+from diffusers.utils.torch_utils import randn_tensor, is_compiled_module
 from SOC_EDM_Ancestral_scheduler import SOCEDMAncestralScheduler
-
+import gc
 def _append_dims(x, target_dims):
     """Appends dimensions to the end of a tensor until it has target_dims dimensions."""
     dims_to_append = target_dims - x.ndim
@@ -400,6 +400,9 @@ class SOCStableVideoDiffusionPipeline(StableVideoDiffusionPipeline):
 
         # Offload all models
         if not store_traj:
+            # free gpu memory
+            torch.cuda.empty_cache()
+            gc.collect()
             return StableVideoDiffusionPipelineOutput(frames=frames)
         else:
             trajectories = torch.stack(list(trajectories.values()), dim=0)
@@ -407,6 +410,9 @@ class SOCStableVideoDiffusionPipeline(StableVideoDiffusionPipeline):
                 noises = torch.stack(list(noises.values()), dim=0)[:, 1:, ...]
             if store_noise_pred:
                 noise_preds = torch.stack(list(noise_preds.values()), dim=0)[:, 1:, ...]
+            # free gpu memory
+            torch.cuda.empty_cache()
+            gc.collect()
             # noises: (batch_size*num_videos_per_prompt, num_inference_steps, num_frames, height, width, channels)
             # noise_preds: (batch_size*num_videos_per_prompt, num_inference_steps, num_frames, height, width, channels)
             # trajectories: (batch_size*num_videos_per_prompt, num_inference_steps + 1, num_frames, height, width, channels)
@@ -426,6 +432,46 @@ class SOCStableVideoDiffusionPipeline(StableVideoDiffusionPipeline):
         self.register_modules(scheduler = ancestral_scheduler)
         print('Set the SVD scheduler to be SOC_EDM_Ancestral Scheduler')
 
+def latent_to_decode(*, model, output_type, latents, decode_chunk_size = None):
+    if not output_type == "latent":
+        vae = model.vae
+        vae.to(dtype=torch.float16)
+        if latents.device != vae.device:
+            vae = vae.to(latents.device)
+        
+        # [batch, frames, channels, height, width] -> [batch*frames, channels, height, width]
+        num_frames = latents.shape[1]
+        decode_chunk_size = decode_chunk_size if decode_chunk_size is not None else num_frames
+
+        latents = latents.flatten(0, 1)
+
+        latents = 1 / vae.config.scaling_factor * latents
+
+        forward_vae_fn = vae._orig_mod.forward if is_compiled_module(vae) else vae.forward
+        accepts_num_frames = "num_frames" in set(inspect.signature(forward_vae_fn).parameters.keys())
+
+        # decode decode_chunk_size frames at a time to avoid OOM
+        frames = []
+        for i in range(0, latents.shape[0], decode_chunk_size):
+            num_frames_in = latents[i : i + decode_chunk_size].shape[0]
+            decode_kwargs = {}
+            if accepts_num_frames:
+                # we only pass num_frames_in if it's expected
+                decode_kwargs["num_frames"] = num_frames_in
+
+            frame = vae.decode(latents[i : i + decode_chunk_size], **decode_kwargs).sample
+            frames.append(frame)
+        frames = torch.cat(frames, dim=0)
+
+        # [batch*frames, channels, height, width] -> [batch, channels, frames, height, width]
+        frames = frames.reshape(-1, num_frames, *frames.shape[1:]).permute(0, 2, 1, 3, 4)
+
+        # we always cast to float32 as this does not cause significant overhead and is compatible with bfloat16
+        frames = frames.float()
+
+    else:
+        frames = latents
+    return frames
 
 if __name__ == "__main__":
     from diffusers.utils import load_image, export_to_video
@@ -455,9 +501,13 @@ if __name__ == "__main__":
     generator = torch.manual_seed(rand_seed)
 
     out = svd_pipeline(init_frame, generator = generator, height=height, width=width, num_frames=24, num_inference_steps=num_inference_steps, fps=7, noise_aug_strength=0.0, 
+                              output_type = 'latent',
                               use_soc_scheduler=use_soc_scheduler, use_init_model=use_init_model, learn_offset=learn_offset, 
                               store_traj=store_traj, store_noise=store_noise, store_noise_pred=store_noise_pred
                               )
     import pdb; pdb.set_trace()
-    fake_video = out[0]
+    with torch.no_grad():
+        frames = latent_to_decode(model=svd_pipeline, output_type='pil', latents=out[0])
+        fake_video = svd_pipeline.video_processor.postprocess_video(video=frames, output_type='pil')[0]
+    # fake_video = out[0]
     export_to_video(fake_video, f"./generated_ancestral_{num_inference_steps}_rand{rand_seed}.mp4", fps=7)
