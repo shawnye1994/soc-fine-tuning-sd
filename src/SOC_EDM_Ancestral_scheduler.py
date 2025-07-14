@@ -11,7 +11,7 @@ logger = logging.get_logger(__name__)  # pylint: disable=invalid-name
 
 @dataclass
 # Copied from diffusers.schedulers.scheduling_ddpm.DDPMSchedulerOutput with DDPM->DDIM
-class SOCEDMSchedulerOutput(BaseOutput):
+class SOCEDMAncestralSchedulerOutput(BaseOutput):
     """
     Custom output class for the scheduler's `step` function output.
 
@@ -37,11 +37,11 @@ class SOCEDMSchedulerOutput(BaseOutput):
     std_dev_t: Optional[torch.FloatTensor] = None
     variance_noise: Optional[torch.FloatTensor] = None
 
-class SOCEDMScheduler(EulerDiscreteScheduler):
+class SOCEDMAncestralScheduler(EulerDiscreteScheduler):
     """
-    `SOCEDMScheduler` is a modification of `EulerDiscreteScheduler` where the `step` function takes in `model_output` as well
+    `SOCEDMAncestralScheduler` is a modification of `EulerDiscreteScheduler` where the `step` function takes in `model_output` as well
     as `model_output_init` (the output of the original model), as well as other changes tailored for stochastic optimal
-    control fine-tuning. 
+    control fine-tuning. Besides, the step function follows EulerAncestralDiscreteScheduler.
 
     `DDPMScheduler` explores the connections between denoising score matching and Langevin dynamics sampling.
 
@@ -113,7 +113,7 @@ class SOCEDMScheduler(EulerDiscreteScheduler):
         s_noise: float = 1.0,
         generator: Optional[torch.Generator] = None,
         return_dict: bool = True,
-    ) -> Union[SOCEDMSchedulerOutput, Tuple]:
+    ) -> Union[SOCEDMAncestralSchedulerOutput, Tuple]:
         """
         Predict the sample from the previous timestep by reversing the SDE. This function propagates the diffusion
         process from the learned model outputs (most often the predicted noise).
@@ -165,7 +165,7 @@ class SOCEDMScheduler(EulerDiscreteScheduler):
 
         sigma = self.sigmas[self.step_index]
 
-        gamma = min(s_churn / (len(self.sigmas) - 1), 2**0.5 - 1) if s_tmin <= sigma <= s_tmax else 0.0
+        gamma = min(s_churn / (len(self.sigmas) - 1), 2**0.5 - 1) if s_tmin <= sigma <= s_tmax else 0.0 #default gamma should be 0
 
         sigma_hat = sigma * (gamma + 1)
 
@@ -203,6 +203,7 @@ class SOCEDMScheduler(EulerDiscreteScheduler):
                 f"prediction_type given as {self.config.prediction_type} must be one of `epsilon`, or `v_prediction`"
             )
 
+        """THE ORIGINAL EULER DISCRETE SCHEDULER STEP FUNCTION
         # 2. Convert to an ODE derivative
         derivative = (sample - pred_original_sample) / sigma_hat
         if init:
@@ -213,6 +214,29 @@ class SOCEDMScheduler(EulerDiscreteScheduler):
         prev_sample = sample + derivative * dt
         if init:
             prev_sample_init = sample + derivative_init * dt
+        """
+        # <-------Euler ancestral update------->
+        sigma_from = self.sigmas[self.step_index]
+        sigma_to = self.sigmas[self.step_index + 1]
+        sigma_up = (sigma_to**2 * (sigma_from**2 - sigma_to**2) / sigma_from**2) ** 0.5
+        sigma_down = (sigma_to**2 - sigma_up**2) ** 0.5
+
+        # 2. Convert to an ODE derivative
+        derivative = (sample - pred_original_sample) / sigma
+        if init:
+            derivative_init = (sample - pred_original_sample_init) / sigma
+
+        dt = sigma_down - sigma
+
+        prev_sample = sample + derivative * dt
+        if init:
+            prev_sample_init = sample + derivative_init * dt
+        noise = randn_tensor(model_output.shape, dtype=model_output.dtype, device=model_output.device, generator=generator)
+        prev_sample = prev_sample + noise * sigma_up
+        if init:
+            prev_sample_init = prev_sample_init + noise * sigma_up
+
+        # <-------Euler ancestral update------->
 
         # Cast sample back to model compatible dtype
         prev_sample = prev_sample.to(model_output.dtype)
@@ -224,11 +248,19 @@ class SOCEDMScheduler(EulerDiscreteScheduler):
         # upon completion increase step index by one
         self._step_index += 1
 
+        variance_noise = noise
+        std_dev_t = sigma_up
         if not return_dict:
             return (
                 prev_sample,
                 pred_original_sample,
-                prev_sample_diff
+                prev_sample_diff,
+                std_dev_t,
+                variance_noise
             )
 
-        return SOCEDMSchedulerOutput(prev_sample=prev_sample, pred_original_sample=pred_original_sample, prev_sample_diff=prev_sample_diff)
+        return SOCEDMAncestralSchedulerOutput(prev_sample=prev_sample, 
+                                     pred_original_sample=pred_original_sample, 
+                                     prev_sample_diff=prev_sample_diff,
+                                     std_dev_t=std_dev_t,
+                                     variance_noise=variance_noise)
