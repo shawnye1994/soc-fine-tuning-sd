@@ -418,7 +418,7 @@ class SOCStableVideoDiffusionPipeline(StableVideoDiffusionPipeline):
             # trajectories: (batch_size*num_videos_per_prompt, num_inference_steps + 1, num_frames, height, width, channels)
             return frames, noises, noise_preds, trajectories
     
-    def set_edm_ancestral_scheduler(self, scheduler_type: str = 'ddim'):
+    def set_edm_ancestral_scheduler(self):
         self.original_scheduler = self.scheduler
         config = dict(self.original_scheduler.config)  # Convert FrozenDict to regular dict
         if 'clip_sample' in config:
