@@ -1,0 +1,9 @@
+discriminator_config:
+  frame_size: [320, 576]
+  pretrain_cotracker_ckpt_file: '/gpfs/junlab/yexi24-postdoc/cotracker_checkpoints/scaled_offline.pth'
+  # pretrain_cotracker_ckpt_file: null
+  spatio_query_method: 'Grid'
+  time_query_method: 'First'
+  max_num_queries: 1024
+
+pretrained_ckpt: "/gpfs/junlab/yexi24-postdoc/checkpoints/MA-VDM/lc_discriminator/lc_discriminator_train_config-2025-07-13T17-46-13/lc_discriminator/lc_discriminator-30000.ckpt"
