@@ -11,6 +11,7 @@ import inspect
 from diffusers.utils.torch_utils import randn_tensor, is_compiled_module
 from SOC_EDM_Ancestral_scheduler import SOCEDMAncestralScheduler
 import gc
+
 def _append_dims(x, target_dims):
     """Appends dimensions to the end of a tensor until it has target_dims dimensions."""
     dims_to_append = target_dims - x.ndim
