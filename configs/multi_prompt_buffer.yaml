@@ -1,13 +1,13 @@
 # Model settings
 model_name: "stable-diffusion-v1-5"
-num_inference_steps: 50
+num_inference_steps: 25
 
 # Optimization settings
 optimizer: "adamw"
 lr: 3.0e-6
 beta1: 0.9
 beta2: 0.95
-batch_size: 5
+batch_size: 2
 accum_grad_steps: 25
 gradient_clip: 0.0 #0.0 for no clipping, if positive, it is the max norm
 gradient_clip_algorithm: "norm"
@@ -59,5 +59,5 @@ verbose: false
 # Buffer
 use_buffer: true
 buffer_device: cpu
-buffer_size: 100
+buffer_size: 4
 passes_per_buffer: 10  # Number of training passes through each buffer before refreshing

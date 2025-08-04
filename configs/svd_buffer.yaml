@@ -1,0 +1,85 @@
+# Model settings
+model_name: "stable-video-diffusion"
+num_inference_steps: 10
+
+# Optimization settings
+optimizer: "adamw"
+lr: 3.0e-6
+beta1: 0.9
+beta2: 0.95
+batch_size: 1
+accum_grad_steps: 25
+gradient_clip: 0.0 #0.0 for no clipping, if positive, it is the max norm
+gradient_clip_algorithm: "norm"
+
+# Training strategy
+precision: "bf16" #['32', 'bf16']
+max_epochs: 10
+num_timesteps_to_load_train: 2
+
+# Paths
+save_dir: "checkpoints"
+train_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/refl_videos.json"
+val_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/refl_videos.json"
+target_vid_size: [24, 320, 576]
+num_workers: 8
+
+# Scheduler settings
+scheduler: "linear_warmup"
+warmup_steps: 20
+
+# Model-specific settings
+# beta_start: 0.002
+# beta_end: 0.009
+reward_multiplier: 100.0
+reward_func: "VideoReward"
+vae_decode_chunk_size: 8
+
+reward_model_config:
+  discriminator_config:
+    frame_size: [320, 576]
+    pretrain_cotracker_ckpt_file: '/gpfs/junlab/yexi24-postdoc/cotracker_checkpoints/scaled_offline.pth'
+    # pretrain_cotracker_ckpt_file: null
+    spatio_query_method: 'Grid'
+    time_query_method: 'First'
+    max_num_queries: 1024
+
+  pretrained_ckpt: "/gpfs/junlab/yexi24-postdoc/checkpoints/MA-VDM/lc_discriminator/lc_discriminator_train_config-2025-07-13T17-46-13/lc_discriminator/lc_discriminator-30000.ckpt"
+
+guidance_in_adjoint_computation: false
+guidance_in_control_computation: false
+prompt_dropout: 0.2
+quick_evaluation: true
+per_sample_threshold_quantile: 0.9 #-1 #negative value to disable
+learn_offset: false
+
+# Lora config
+lora_adapter_name: "motion_adapter"
+only_lora_on_temporal_module: true
+lora_precision: "bfloat16" # options: ["fp32", "bfloat16", "fp16"]
+lora_config:
+  r: 4
+  lora_alpha: 4
+  init_lora_weights: "gaussian"
+  target_modules: ["to_k", "to_q", "to_v", "to_out.0"]
+resume_from_checkpoint: null
+
+# Gradient smoothing settings
+smooth_gradients: false
+smooth_samples: 20
+smooth_noise_std: 0.02
+smooth_clipping_quantile: 0.85
+
+# Misc
+use_tf32: true
+seed: 0
+wandb_project: "AM-SVD-buffer"
+checkpoint_every_n_epochs: 1
+val_check_interval: 0.1
+verbose: false
+
+# Buffer
+use_buffer: true
+buffer_device: cpu
+buffer_size: 2
+passes_per_buffer: 10  # Number of training passes through each buffer before refreshing

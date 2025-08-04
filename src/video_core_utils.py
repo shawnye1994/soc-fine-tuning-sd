@@ -13,12 +13,66 @@ import wandb
 import pytorch_lightning as pl
 
 from soc_pipeline_svd import SOCStableVideoDiffusionPipeline
+from diffusers.loaders import PeftAdapterMixin
+
+import torch.nn as nn
+
+# class _LoraWrapper(nn.Module):
+#     """
+#     A thin wrapper that forwards to `self.core` but
+#       • enables a given adapter     when `adapter_name` is not None
+#       • disables every adapter      when `adapter_name` is None
+#     Nothing is copied, both views share the same parameter tensors.
+#     Use for the initialization of unet_int and trainable unet
+#     """
+#     def __init__(self, core_unet, adapter_name: str | None):
+#         super().__init__()
+#         self.core = core_unet
+#         self.adapter_name = adapter_name        # None → LoRA off
+
+#     # ---- mandatory: forward pass ----------------------------------
+#     def forward(self, *args, **kwargs):
+#         if self.adapter_name is None:
+#             self.core.set_adapter([])                   # LoRA OFF
+#         else:
+#             self.core.set_adapter([self.adapter_name])  # LoRA ON
+#         return self.core(*args, **kwargs)
+
+#     # ---- transparently expose every other attribute ---------------
+#     def __getattr__(self, item):
+#         return getattr(self.core, item)
+
+def attach_peft_mixin(model):
+    """
+    Make an *already-instantiated* UNet gain the PEFT/LoRA API
+    (add_adapter, set_adapter, enable_adapters, …) without touching
+    the original source code.
+
+    Returns the same object, now with the extra methods.
+    """
+    # 1.  Do nothing if it already has the mixin
+    if isinstance(model, PeftAdapterMixin):
+        return model
+
+    # 2.  Create a new class that merges the current class + mixin
+    NewCls = type(
+        f"PeftWrapped{model.__class__.__name__}",
+        (PeftAdapterMixin, model.__class__),   # MRO: mixin first
+        {}
+    )
+
+    # 3.  Point the instance to the new class
+    model.__class__ = NewCls
+
+    # 4.  Run the mixin’s __init__ (it just sets a few attributes)
+    PeftAdapterMixin.__init__(model)
+
+    return model
 
 def get_model(
     model_name,
     use_compile=True,
     bfloat_dtype=True,
-    scheduler="edm_ancestral",
     use_for_training=True,
 ):
     """
@@ -34,14 +88,9 @@ def get_model(
     else:
         raise ValueError(f"Unknown model name: {model_name}")
 
-    if scheduler == "euler_discrete":
-        pass #which is the default scheduler
-    elif scheduler == 'edm_ancestral':
-        # used for the soc finetuning
-        pipeline.set_edm_ancestral_scheduler()
-    else:
-        raise ValueError(f"Unknown scheduler: {scheduler}")
-
+    # add the peft functions to the svd unet
+    pipeline.unet = attach_peft_mixin(pipeline.unet)
+    
     if use_compile:
         print("Run torch compile")
         pipeline.unet.to(memory_format=torch.channels_last)

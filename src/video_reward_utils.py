@@ -5,6 +5,7 @@ import torch.nn.functional as F
 from cotracker_core.cotracker_discriminator import TrajectoryDiscriminator
 from omegaconf import OmegaConf
 from einops import rearrange
+from typing import Dict
 
 class VideReward(nn.Module):
     def __init__(self, config_dict):
@@ -28,7 +29,7 @@ class VideReward(nn.Module):
 
         self.target_frame_size = arch_config['frame_size']
     
-    def forward(self, vid):
+    def _forward(self, vid):
         """
         Args:
             vid: the video to be evaluated, shape: (B, T, C, H, W), with pixel value range [0, 1]
@@ -45,6 +46,19 @@ class VideReward(nn.Module):
         out = self.traj_discriminator.cotracker_forward(vid)
         r = F.sigmoid(out).squeeze(-1)
         
+        return r
+
+    def forward(self, vid):
+        # forward with gradient checkpointing
+        r = torch.utils.checkpoint.checkpoint(
+            self._forward,
+            vid,
+            preserve_rng_state=False,
+            use_reentrant=False
+        )
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            
         return r
 
     def load_pretrained_discriminator(self, model, pretrained_ckpt):
@@ -77,7 +91,7 @@ class VideReward(nn.Module):
 
 
 def video_rm_load(
-    traj_discriminator_config,
+    traj_discriminator_config: Union[str, Dict],
     device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu"
 ):
     """Load a ImageReward model
@@ -94,7 +108,8 @@ def video_rm_load(
     model : torch.nn.Module
         The Video reward model
     """
-    traj_discriminator_config = OmegaConf.load(traj_discriminator_config)
+    if isinstance(traj_discriminator_config, str):
+        traj_discriminator_config = OmegaConf.load(traj_discriminator_config)
     model = VideReward(traj_discriminator_config).to(device)
 
     model.eval()

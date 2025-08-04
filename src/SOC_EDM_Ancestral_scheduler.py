@@ -88,7 +88,7 @@ class SOCEDMAncestralScheduler(EulerDiscreteScheduler):
             dark samples instead of limiting it to samples with medium brightness. Loosely related to
             [`--offset_noise`](https://github.com/huggingface/diffusers/blob/74fd735eb073eb1d774b1ab4154a0876eb82f055/examples/dreambooth/train_dreambooth.py#L506).
     """
-    def batch_scale_model_input(self, sample: torch.Tensor, timestep: Union[float, torch.Tensor]) -> torch.Tensor:
+    def batch_scale_model_input(self, sample: torch.Tensor, timestep: Union[float, torch.Tensor], scheduler_timesteps: torch.Tensor = None) -> torch.Tensor:
         """
         Ensures interchangeability with schedulers that need to scale the denoising model input depending on the
         current timestep. Scales the denoising model input by `(sigma**2 + 1) ** 0.5` to match the Euler algorithm.
@@ -103,12 +103,11 @@ class SOCEDMAncestralScheduler(EulerDiscreteScheduler):
             `torch.Tensor`:
                 A scaled input sample.
         """
-        step_indices = [self.index_for_timestep(t) for t in timestep]
+        step_indices = [self.index_for_timestep(t, scheduler_timesteps) for t in timestep]
         sigma = self.sigmas[step_indices].flatten().to(sample.device)
         while len(sigma.shape) < len(sample.shape):
             sigma = sigma.unsqueeze(-1)
-
-        sample = self.precondition_inputs(sample, sigma)
+        sample = sample / ((sigma**2 + 1) ** 0.5)
 
         return sample
 
@@ -255,6 +254,7 @@ class SOCEDMAncestralScheduler(EulerDiscreteScheduler):
         if init:
             prev_sample_init = sample + derivative_init * dt
 
+        noise = randn_tensor(model_output.shape, dtype=model_output.dtype, device=model_output.device, generator=generator)
         prev_sample = prev_sample + noise * sigma_up
         if init:
             prev_sample_init = prev_sample_init + noise * sigma_up
@@ -301,6 +301,7 @@ class SOCEDMAncestralScheduler(EulerDiscreteScheduler):
         generator: Optional[torch.Generator] = None,
         noise: Optional[torch.Tensor] = None,
         return_dict: bool = True,
+        scheduler_timesteps: torch.Tensor = None,
     ) -> Union[SOCEDMAncestralSchedulerOutput, Tuple]:
         """
         Used for the controal evaluation.
@@ -310,7 +311,7 @@ class SOCEDMAncestralScheduler(EulerDiscreteScheduler):
         Args:
             model_output (`torch.Tensor`): (B, T, C, H, W)
                 The direct output from learned diffusion model.
-            timestep (`float`): (B, 1)
+            timestep (`float`): (B,)
                 The current discrete timestep in the diffusion chain.
             sample (`torch.Tensor`): (B, T, C, H, W)
                 A current instance of a sample created by the diffusion process.
@@ -349,7 +350,7 @@ class SOCEDMAncestralScheduler(EulerDiscreteScheduler):
         # Upcast to avoid precision issues when computing prev_sample
         sample = sample.to(torch.float32)
 
-        step_indices = [self.index_for_timestep(t) for t in timestep]
+        step_indices = [self.index_for_timestep(t, scheduler_timesteps) for t in timestep]
         sigma = self.sigmas[step_indices].flatten().to(sample.device)
         while len(sigma.shape) < len(sample.shape):
             sigma = sigma.unsqueeze(-1)

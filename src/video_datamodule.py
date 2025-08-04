@@ -60,9 +60,7 @@ def read_video(vid_path, target_size):
     
     # Stack frames back into a video tensor
     video_tensor = torch.cat(resized_frames, dim=0)
-    # convert init_frame to PIL image
     init_frame = video_tensor[0, ...]
-    init_frame = transforms.ToPILImage()(init_frame)
 
     return video_tensor, init_frame
 
@@ -94,9 +92,10 @@ class VideoDataset(Dataset):
         return video_tensor, init_frame
 
 class VideoDataModule(pl.LightningDataModule):
-    def __init__(self, batch_size, train_video_path_json="refl_videos.json", val_video_path_json="refl_videos.json", target_vid_size=(24, 576, 1024)):
+    def __init__(self, batch_size, num_workers=3, train_video_path_json="refl_videos.json", val_video_path_json="refl_videos.json", target_vid_size=(24, 576, 1024)):
         super().__init__()
         self.batch_size = batch_size
+        self.num_workers = num_workers
         self.train_video_path_json = train_video_path_json
         self.val_video_path_json = val_video_path_json
         self.target_vid_size = target_vid_size
@@ -112,7 +111,7 @@ class VideoDataModule(pl.LightningDataModule):
             batch_size=self.batch_size,
             shuffle=True,
             pin_memory=True,
-            num_workers=3,
+            num_workers=self.num_workers,
         )
 
     def val_dataloader(self):
@@ -167,5 +166,9 @@ class BufferVideoDataModule(pl.LightningDataModule):
 if __name__ == '__main__':
     video_dataset = VideoDataset('/gpfs-flash/junlab/yexi24-postdoc/refl_videos.json')
     print(len(video_dataset))
+
+    import pdb; pdb.set_trace()
+    a = [video_dataset[i] for i in [0,1,2]]
+    
     vid_tensor, init_frame = video_dataset.__getitem__(1)
     import pdb; pdb.set_trace()

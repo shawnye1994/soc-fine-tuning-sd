@@ -1,5 +1,7 @@
 from diffusers import StableVideoDiffusionPipeline
 from diffusers.schedulers import DDIMScheduler
+from diffusers.pipelines.stable_video_diffusion.pipeline_stable_video_diffusion import _resize_with_antialiasing
+from einops import rearrange
 
 from diffusers.utils import BaseOutput
 from typing import Callable, Dict, List, Optional, Union
@@ -216,7 +218,8 @@ class SOCStableVideoDiffusionPipeline(StableVideoDiffusionPipeline):
         self._guidance_scale = max_guidance_scale
 
         # 3. Encode input image
-        image_embeddings = self._encode_image(image, device, num_videos_per_prompt, self.do_classifier_free_guidance)
+        image_embeddings = self._encode_image(self.resize_for_encoding(image), device, num_videos_per_prompt, self.do_classifier_free_guidance)
+        # image_embeddings = self._encode_image(image, device, num_videos_per_prompt, self.do_classifier_free_guidance)
 
         # NOTE: Stable Video Diffusion was conditioned on fps - 1, which is why it is reduced here.
         # See: https://github.com/Stability-AI/generative-models/blob/ed0997173f98eaf8f4edf7ba5fe8f15c6b877fd3/scripts/sampling/simple_video_sample.py#L188
@@ -227,12 +230,12 @@ class SOCStableVideoDiffusionPipeline(StableVideoDiffusionPipeline):
         noise = randn_tensor(image.shape, generator=generator, device=device, dtype=image.dtype)
         image = image + noise_aug_strength * noise
 
-        needs_upcasting = self.vae.dtype == torch.float16 and self.vae.config.force_upcast
+        needs_upcasting = self.vae.dtype == torch.bfloat16 and self.vae.config.force_upcast
         if needs_upcasting:
             self.vae.to(dtype=torch.float32)
 
         image_latents = self._encode_vae_image(
-            image,
+            image.to(self.vae.dtype),
             device=device,
             num_videos_per_prompt=num_videos_per_prompt,
             do_classifier_free_guidance=self.do_classifier_free_guidance,
@@ -241,7 +244,7 @@ class SOCStableVideoDiffusionPipeline(StableVideoDiffusionPipeline):
 
         # cast back to fp16 if needed
         if needs_upcasting:
-            self.vae.to(dtype=torch.float16)
+            self.vae.to(dtype=torch.bfloat16)
 
         # Repeat the image latents for each frame so we can concatenate them with the noise
         # image_latents [batch, channels, height, width] ->[batch, num_frames, channels, height, width]
@@ -303,13 +306,24 @@ class SOCStableVideoDiffusionPipeline(StableVideoDiffusionPipeline):
 
                 # predict the noise residual, SOC Fine-tuning Changes
                 if learn_offset: #default is false
-                    noise_pred_init = self.unet_init(
+                    try:
+                        self.unet.set_adapter([]) #deactivate the lora during finetuning
+                    except Exception as e:
+                        # print the error
+                        print(f"Error deactivating the lora: {e}")
+                    noise_pred_init = self.unet(
                         latent_model_input,
                         t,
                         encoder_hidden_states=image_embeddings,
                         added_time_ids=added_time_ids,
                         return_dict=False,
                     )[0]
+                    try:
+                        self.unet.set_adapter([self.lora_name]) #activate the lora during finetuning
+                    except Exception as e:
+                        # print the error
+                        print(f"Error activating the lora: {e}")
+
                     if not use_init_model:
                         noise_pred_offset = self.unet(
                             latent_model_input,
@@ -335,15 +349,26 @@ class SOCStableVideoDiffusionPipeline(StableVideoDiffusionPipeline):
                             noise_pred = noise_pred_init + noise_pred_offset
 
                 else:
-                    unet_model = self.unet_init if use_init_model else self.unet
+                    if use_init_model:
+                        try:
+                            self.unet.set_adapter([]) #deactivate the lora during finetuning
+                        except Exception as e:
+                            # print the error
+                            print(f"Error deactivating the lora: {e}")
                     # predict the noise residual
-                    noise_pred = unet_model(
+                    noise_pred = self.unet(
                         latent_model_input,
                         t,
                         encoder_hidden_states=image_embeddings,
                         added_time_ids=added_time_ids,
                         return_dict=False,
                     )[0]
+                    if use_init_model:
+                        try:
+                            self.unet.set_adapter([self.lora_name]) #activate the lora during finetuning
+                        except Exception as e:
+                            # print the error
+                            print(f"Error activating the lora: {e}")
 
                     # perform guidance
                     if self.do_classifier_free_guidance:
@@ -391,7 +416,7 @@ class SOCStableVideoDiffusionPipeline(StableVideoDiffusionPipeline):
         if not output_type == "latent":
             # cast back to fp16 if needed
             if needs_upcasting:
-                self.vae.to(dtype=torch.float16)
+                self.vae.to(dtype=torch.bfloat16)
             frames = self.decode_latents(latents, num_frames, decode_chunk_size)
             frames = self.video_processor.postprocess_video(video=frames, output_type=output_type)[0] # a list of PIL images if output_type is pil
         else:
@@ -417,7 +442,7 @@ class SOCStableVideoDiffusionPipeline(StableVideoDiffusionPipeline):
             # noises: (batch_size*num_videos_per_prompt, num_inference_steps, num_frames, height, width, channels)
             # noise_preds: (batch_size*num_videos_per_prompt, num_inference_steps, num_frames, height, width, channels)
             # trajectories: (batch_size*num_videos_per_prompt, num_inference_steps + 1, num_frames, height, width, channels)
-            return frames, noises, noise_preds, trajectories
+            return frames, noises, noise_preds, trajectories, image_latents, image_embeddings, added_time_ids, timesteps
     
     def set_edm_ancestral_scheduler(self):
         self.original_scheduler = self.scheduler
@@ -433,10 +458,20 @@ class SOCStableVideoDiffusionPipeline(StableVideoDiffusionPipeline):
         self.register_modules(scheduler = ancestral_scheduler)
         print('Set the SVD scheduler to be SOC_EDM_Ancestral Scheduler')
 
+    def resize_for_encoding(self, image):
+        if not isinstance(image, PIL.Image.Image):
+            # We normalize the image before resizing to match with the original implementation.
+            # Then we unnormalize it after resizing.
+            image = image * 2.0 - 1.0
+            image = _resize_with_antialiasing(image, (224, 224))
+            image = (image + 1.0) / 2.0
+
+        return image
+
 def latent_to_decode(*, model, output_type, latents, decode_chunk_size = None):
     if not output_type == "latent":
         vae = model.vae
-        vae.to(dtype=torch.float16)
+        vae.to(dtype=torch.bfloat16)
         if latents.device != vae.device:
             vae = vae.to(latents.device)
         
@@ -459,9 +494,22 @@ def latent_to_decode(*, model, output_type, latents, decode_chunk_size = None):
             if accepts_num_frames:
                 # we only pass num_frames_in if it's expected
                 decode_kwargs["num_frames"] = num_frames_in
+            
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
-            frame = vae.decode(latents[i : i + decode_chunk_size], **decode_kwargs).sample
+            # Use gradient checkpointing for each chunk
+            frame = torch.utils.checkpoint.checkpoint(
+                lambda x: vae.decode(x, **decode_kwargs).sample,
+                latents[i : i + decode_chunk_size],
+                preserve_rng_state=False,
+                use_reentrant=False
+            )
+
             frames.append(frame)
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
         frames = torch.cat(frames, dim=0)
 
         # [batch*frames, channels, height, width] -> [batch, channels, frames, height, width]
@@ -486,29 +534,41 @@ if __name__ == "__main__":
     
     
     pipeline = SOCStableVideoDiffusionPipeline.from_pretrained(
-                "stabilityai/stable-video-diffusion-img2vid-xt", torch_dtype=torch.float16, variant="fp16"
+                "stabilityai/stable-video-diffusion-img2vid-xt", torch_dtype=torch.bfloat16
                 )
+    pipeline.enable_model_cpu_offload()
+    pipeline.vae.requires_grad_(False)
+    pipeline.unet.requires_grad_(False)
+    pipeline.vae.enable_gradient_checkpointing()
+    pipeline.unet.enable_gradient_checkpointing()
+
     if use_soc_scheduler:
         pipeline.set_edm_ancestral_scheduler()
-    svd_pipeline = pipeline.to("cuda:8")
+    svd_pipeline = pipeline
     
     target_size = (1024, 576)
     init_frame = load_image("/gpfs-flash/junlab/yexi24-postdoc/TrainingFree3DVideoGeneration/rocket.png")
     init_frame = init_frame.resize(target_size)
+    # convert init_frame to numpy
+    init_frame = np.array(init_frame) / 255.0
+    init_frame = torch.from_numpy(init_frame).unsqueeze(0)
+    init_frame = rearrange(init_frame, 'b h w c -> b c h w')
+
     height, width = target_size[1], target_size[0]
 
     num_inference_steps = 25
     rand_seed = 256
     generator = torch.manual_seed(rand_seed)
-
-    out = svd_pipeline(init_frame, generator = generator, height=height, width=width, num_frames=24, num_inference_steps=num_inference_steps, fps=7, noise_aug_strength=0.0, 
-                              output_type = 'latent',
-                              use_soc_scheduler=use_soc_scheduler, use_init_model=use_init_model, learn_offset=learn_offset, 
-                              store_traj=store_traj, store_noise=store_noise, store_noise_pred=store_noise_pred
-                              )
-    import pdb; pdb.set_trace()
-    with torch.no_grad():
-        frames = latent_to_decode(model=svd_pipeline, output_type='pil', latents=out[0])
-        fake_video = svd_pipeline.video_processor.postprocess_video(video=frames, output_type='pil')[0]
-    # fake_video = out[0]
-    export_to_video(fake_video, f"./generated_ancestral_{num_inference_steps}_rand{rand_seed}.mp4", fps=7)
+    decode_chunk_size = 16
+    with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+        out = svd_pipeline(init_frame, generator = generator, height=height, width=width, num_frames=24, num_inference_steps=num_inference_steps, fps=7, noise_aug_strength=0.0, 
+                                output_type = 'latent',
+                                use_soc_scheduler=use_soc_scheduler, use_init_model=use_init_model, learn_offset=learn_offset, 
+                                store_traj=store_traj, store_noise=store_noise, store_noise_pred=store_noise_pred
+                                )
+        with torch.enable_grad():
+            out[0].requires_grad_(True)
+            frames = latent_to_decode(model=svd_pipeline, output_type='pil', latents=out[0], decode_chunk_size=decode_chunk_size)
+            fake_video = svd_pipeline.video_processor.postprocess_video(video=frames.detach(), output_type='pil')[0]
+        # fake_video = out[0]
+        export_to_video(fake_video, f"./generated_ancestral_{num_inference_steps}_rand{rand_seed}_chunk_{decode_chunk_size}.mp4", fps=7)

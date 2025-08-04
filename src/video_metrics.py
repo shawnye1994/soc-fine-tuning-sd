@@ -44,7 +44,7 @@ def do_video_reward(*, videos, use_no_grad=True):
 
 def do_eval(*, videos, metrics_to_compute):
     """
-    Compute the metrics for the given images and prompt.
+    Compute the metrics for the given videos.
     """
     results = {}
     for metric in metrics_to_compute:
@@ -78,7 +78,7 @@ def reward_function(video, traj_discriminator_config, device, reward_func="Video
         Tensor of reward values (with or without gradients based on use_no_grad)
     """
 
-    if reward_func == "ImageReward":
+    if reward_func == "VideoReward":
         global REWARDS_DICT
         if REWARDS_DICT["VideoReward"] is None:
             REWARDS_DICT['VideoReward'] = video_rm_load(traj_discriminator_config, device)
