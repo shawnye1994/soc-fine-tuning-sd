@@ -1,6 +1,6 @@
 # Model settings
 model_name: "stable-video-diffusion"
-num_inference_steps: 10
+num_inference_steps: 25
 
 # Optimization settings
 optimizer: "adamw"
@@ -9,7 +9,7 @@ beta1: 0.9
 beta2: 0.95
 batch_size: 1
 accum_grad_steps: 25
-gradient_clip: 0.0 #0.0 for no clipping, if positive, it is the max norm
+gradient_clip: 1.0 #0.0 for no clipping, if positive, it is the max norm
 gradient_clip_algorithm: "norm"
 
 # Training strategy

@@ -142,6 +142,7 @@ class BufferAMTrainer(BufferSOCTrainer, AMTrainer):
             generator=generator,
             noise=torch.zeros_like(noise_pred_eval, device=noise_pred_eval.device),
             return_dict=False,
+            scheduler_timesteps=self.time_steps
         )
         prev_sample_diff_from_buffer = rearrange(prev_sample_diff_from_buffer, '(b nttl) t c h w -> b nttl t c h w', b=batch_size, nttl=nttl)
         std_dev_t = rearrange(std_dev_t, '(b nttl) t c h w-> b nttl t c h w', b=batch_size, nttl=nttl)

@@ -1,5 +1,5 @@
 import torch
-
+import gc
 from svd_trainers.soc_trainer import SOCTrainer
 
 class BufferSOCTrainer(SOCTrainer):
@@ -41,6 +41,12 @@ class BufferSOCTrainer(SOCTrainer):
         # Initialize the buffer at the start of training
         if not self.buffer_initialized:
             self.recompute_buffer(1)  # Fill with first chunk
+                # offload the vae to cpu
+        print('offloading vae to cpu')
+        self.soc_pipeline.vae.encoder.to('cpu')
+        self.soc_pipeline.vae.decoder.to('cpu')
+        torch.cuda.empty_cache()
+        gc.collect()
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         # If we just finished all passes through a buffer:

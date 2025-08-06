@@ -1,5 +1,7 @@
 import torch
 import torch.distributed as dist
+import torch.nn as nn
+from torch.utils.checkpoint import checkpoint
 
 import pytorch_lightning as pl
 from video_core_utils import get_model, reinitialize_last_layer
@@ -12,7 +14,7 @@ from diffusers.training_utils import cast_training_params
 # from video_core_utils import _LoraWrapper
 from einops import rearrange
 import gc
-from torchviz import make_dot
+# from torchviz import make_dot
 
 
 class SOCTrainer(pl.LightningModule):
@@ -101,6 +103,8 @@ class SOCTrainer(pl.LightningModule):
         # Handle last layer initialization if needed
         if self.config.learn_offset:
             self._reinitialize_last_layer()
+        
+        self.soc_pipeline.unet.enable_gradient_checkpointing()
 
     def _initialize_scheduler(self):
         """Setup the diffusion scheduler with custom parameters"""
@@ -351,14 +355,13 @@ class SOCTrainer(pl.LightningModule):
             raise NotImplementedError("Offset learning is not implemented yet")
 
         else:
-            with torch.amp.autocast(device_type="cuda", enabled=False):
-                noise_pred_eval = self.unet(
-                    x_eval_model_input.to(self.unet.dtype),
-                    t_eval_repeat,
-                    encoder_hidden_states=image_embeddings_expanded,
-                    added_time_ids=added_time_ids_expanded,
-                    return_dict=False,
-                )[0]
+            noise_pred_eval = self.unet(
+                x_eval_model_input.to(self.unet.dtype),
+                t_eval_repeat,
+                encoder_hidden_states=image_embeddings_expanded,
+                added_time_ids=added_time_ids_expanded,
+                return_dict=False,
+            )[0]
             
             if noise_pred_init is not None:
                 noise_pred_init_eval = noise_pred_init

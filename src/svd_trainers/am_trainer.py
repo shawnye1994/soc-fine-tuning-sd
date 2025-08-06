@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from typing import Optional
 import pytorch_lightning as pl
-
+import gc
 from svd_trainers.soc_trainer import SOCTrainer
 from torch.amp import autocast
 
@@ -609,7 +609,17 @@ class AMTrainer(SOCTrainer):
         
     def validation_step(self, batch, batch_idx):
         print(f'VALIDATION STEP, batch_idx: {batch_idx}')
+        if next(self.soc_pipeline.vae.encoder.parameters()).device == torch.device('cpu'):
+            print('move vae to gpu')
+            self.soc_pipeline.vae.encoder.to(self.device)
+            self.soc_pipeline.vae.decoder.to(self.device)
+
         self.evaluate_step(batch, batch_idx, "val")
+
+        self.soc_pipeline.vae.encoder.to('cpu')
+        self.soc_pipeline.vae.decoder.to('cpu')
+        torch.cuda.empty_cache()
+        gc.collect()
     
     @classmethod
     def load_from_checkpoint(cls, checkpoint_path, config=None, **kwargs):
