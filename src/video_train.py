@@ -77,6 +77,7 @@ def main():
             train_video_path_json=config.train_video_path_json,
             val_video_path_json=config.val_video_path_json,
             target_vid_size=config.target_vid_size,
+            vid_data_type=config.vid_data_type,
         )
     else:
         datamodule = VideoDataModule(
@@ -85,6 +86,7 @@ def main():
             train_video_path_json=config.train_video_path_json,
             val_video_path_json=config.val_video_path_json,
             target_vid_size=config.target_vid_size,
+            vid_data_type=config.vid_data_type,
         )
     config.iterations_per_epoch = len(datamodule.train_dataloader())
 

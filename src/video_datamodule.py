@@ -9,7 +9,7 @@ import numpy as np
 from torchvision import transforms
 
 
-def read_video(vid_path, target_size):
+def read_video(vid_path, target_size, vid_data_type):
     """Read video file into a pytorch tensor, with shape (T, C, H, W), pixel range [0, 1]
     Args:
         vid_path: path to the video file
@@ -18,21 +18,27 @@ def read_video(vid_path, target_size):
         video_tensor: pytorch tensor of shape (T, C, H, W), pixel range [0, 1]
         init_frame: PIL image of the first frame
     """
-    # Read video file using imageio
-    video = iio.imread(vid_path, index=None)  # Read all frames
-    # Convert to numpy array if not already
-    video_np = np.array(video)
-    # Handle different video formats
-    assert video_np.ndim == 4, "Video must have 4 dimensions (T, H, W, C)"
+    if vid_data_type == 'mp4':
+        # Read video file using imageio
+        video = iio.imread(vid_path, index=None)  # Read all frames
+        # Convert to numpy array if not already
+        video_np = np.array(video)
+        # Handle different video formats
+        assert video_np.ndim == 4, "Video must have 4 dimensions (T, H, W, C)"
 
-    # Convert from (T, H, W, C) to (T, C, H, W) format
-    video_np = np.transpose(video_np, (0, 3, 1, 2))
-    
-    # Convert to PyTorch tensor
-    video_tensor = torch.from_numpy(video_np).float()
-    
-    # Normalize to [0, 1]
-    video_tensor = video_tensor / 255.0
+        # Convert from (T, H, W, C) to (T, C, H, W) format
+        video_np = np.transpose(video_np, (0, 3, 1, 2))
+        
+        # Convert to PyTorch tensor
+        video_tensor = torch.from_numpy(video_np).float()
+        
+        # Normalize to [0, 1]
+        video_tensor = video_tensor / 255.0
+
+    elif vid_data_type == 'pt':
+        data = torch.load(vid_path)
+        video_tensor = data['real_video'] #（T, C, H, W)
+        assert video_tensor.min() >= 0 and video_tensor.max() <= 1, "Video tensor must be normalized to [0, 1]"
 
     # Take only the first target_size[0] frames
     assert video_tensor.shape[0] >= target_size[0], "Video must have at least target_size[0] frames"
@@ -65,7 +71,7 @@ def read_video(vid_path, target_size):
     return video_tensor, init_frame
 
 class VideoDataset(Dataset):
-    def __init__(self, video_path_json="refl_videos.json", target_vid_size=(24, 576, 1024)):
+    def __init__(self, video_path_json="refl_videos.json", target_vid_size=(24, 576, 1024), vid_data_type='mp4'):
         """
         Args:
             video_path_json: path to the json file containing the video paths
@@ -76,6 +82,7 @@ class VideoDataset(Dataset):
         self.data = data
         self.vid_ids = list(data.keys())
         self.target_vid_size = target_vid_size
+        self.vid_data_type = vid_data_type
 
     def __len__(self):
         return len(self.vid_ids)
@@ -87,23 +94,24 @@ class VideoDataset(Dataset):
             init_frame: PIL image of the first frame
         """
         vid_path = self.data[self.vid_ids[idx]]
-        video_tensor, init_frame = read_video(vid_path, self.target_vid_size)
+        video_tensor, init_frame = read_video(vid_path, self.target_vid_size, self.vid_data_type)
 
         return video_tensor, init_frame
 
 class VideoDataModule(pl.LightningDataModule):
-    def __init__(self, batch_size, num_workers=3, train_video_path_json="refl_videos.json", val_video_path_json="refl_videos.json", target_vid_size=(24, 576, 1024)):
+    def __init__(self, batch_size, num_workers=3, train_video_path_json="refl_videos.json", val_video_path_json="refl_videos.json", target_vid_size=(24, 576, 1024), vid_data_type='mp4'):
         super().__init__()
         self.batch_size = batch_size
         self.num_workers = num_workers
         self.train_video_path_json = train_video_path_json
         self.val_video_path_json = val_video_path_json
         self.target_vid_size = target_vid_size
+        self.vid_data_type = vid_data_type
         self.setup()
 
     def setup(self, stage=None):
-        self.train_dataset = VideoDataset(video_path_json=self.train_video_path_json, target_vid_size=self.target_vid_size)
-        self.val_dataset = VideoDataset(video_path_json=self.val_video_path_json, target_vid_size=self.target_vid_size)
+        self.train_dataset = VideoDataset(video_path_json=self.train_video_path_json, target_vid_size=self.target_vid_size, vid_data_type=self.vid_data_type)
+        self.val_dataset = VideoDataset(video_path_json=self.val_video_path_json, target_vid_size=self.target_vid_size, vid_data_type=self.vid_data_type)
 
     def train_dataloader(self):
         return DataLoader(
@@ -125,7 +133,8 @@ class VideoDataModule(pl.LightningDataModule):
 
 class BufferVideoDataModule(pl.LightningDataModule):
     def __init__(self, batch_size, buffer_size, num_workers=3, train_video_path_json="refl_videos.json", 
-                 val_video_path_json="refl_videos.json", target_vid_size=(24, 576, 1024)):
+                 val_video_path_json="refl_videos.json", target_vid_size=(24, 576, 1024),
+                 vid_data_type='mp4'):
         super().__init__()
         self.batch_size = batch_size
         self.buffer_size = buffer_size
@@ -133,6 +142,7 @@ class BufferVideoDataModule(pl.LightningDataModule):
         self.train_video_path_json = train_video_path_json
         self.val_video_path_json = val_video_path_json
         self.target_vid_size = target_vid_size
+        self.vid_data_type = vid_data_type
         self.sampler = None
         self.setup()
 
@@ -140,8 +150,8 @@ class BufferVideoDataModule(pl.LightningDataModule):
         """
         Called by Lightning before training (or testing).
         """
-        self.train_dataset = VideoDataset(video_path_json=self.train_video_path_json, target_vid_size=self.target_vid_size)
-        self.val_dataset = VideoDataset(video_path_json=self.val_video_path_json, target_vid_size=self.target_vid_size)
+        self.train_dataset = VideoDataset(video_path_json=self.train_video_path_json, target_vid_size=self.target_vid_size, vid_data_type=self.vid_data_type)
+        self.val_dataset = VideoDataset(video_path_json=self.val_video_path_json, target_vid_size=self.target_vid_size, vid_data_type=self.vid_data_type)
 
     def train_dataloader(self):
         self.sampler = ChunkedSampler(self.train_dataset, chunk_size=self.buffer_size, shuffle=True)

@@ -19,10 +19,11 @@ num_timesteps_to_load_train: 2
 
 # Paths
 save_dir: "checkpoints"
-train_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/refl_videos.json"
-val_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/refl_videos.json"
+train_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/refl_videos_pt.json"
+val_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/refl_videos_pt.json"
 target_vid_size: [24, 320, 576]
 num_workers: 8
+vid_data_type: "pt"
 
 # Scheduler settings
 scheduler: "linear_warmup"
@@ -31,7 +32,7 @@ warmup_steps: 20
 # Model-specific settings
 # beta_start: 0.002
 # beta_end: 0.009
-reward_multiplier: 100.0
+reward_multiplier: 1.0
 reward_func: "VideoReward"
 vae_decode_chunk_size: 8
 
@@ -44,7 +45,7 @@ reward_model_config:
     time_query_method: 'First'
     max_num_queries: 1024
 
-  pretrained_ckpt: "/gpfs/junlab/yexi24-postdoc/checkpoints/MA-VDM/lc_discriminator/lc_discriminator_train_config-2025-07-13T17-46-13/lc_discriminator/lc_discriminator-30000.ckpt"
+  pretrained_ckpt: "/gpfs/junlab/yexi24-postdoc/checkpoints/MA-VDM/lc_discriminator/lc_discriminator_train_config-2025-07-27T10-27-23/lc_discriminator/lc_discriminator-45000.ckpt"
 
 guidance_in_adjoint_computation: false
 guidance_in_control_computation: false
