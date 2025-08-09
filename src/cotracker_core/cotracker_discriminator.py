@@ -133,9 +133,11 @@ class TrajectoryDiscriminator(nn.Module):
             query_s = rearrange(query_s, 'h w c -> (h w) c')
             # randomly select max_num_queries points
             assert self.max_num_queries <= query_s.shape[0], "max_num_queries should be less than HxW"
-            indices = torch.randperm(query_s.shape[0])[:self.max_num_queries]
-            query_s = query_s[indices, :]
-            query_s = repeat(query_s, 'n c -> b n c', b=B).to(torch.float32)
+            batch_query_s = []
+            for i in range(B):
+                indices = torch.randperm(query_s.shape[0])[:self.max_num_queries]
+                batch_query_s.append(query_s[indices, :])
+            query_s = torch.stack(batch_query_s, dim=0).to(torch.float32)
         else:
             raise NotImplementedError(f"Unsupported spatio query method: {self.spatio_query_method}")
         
