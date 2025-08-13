@@ -117,7 +117,7 @@ def main():
         deterministic=False,
         gradient_clip_val=config.gradient_clip,
         gradient_clip_algorithm="norm",
-        check_val_every_n_epoch=1,
+        check_val_every_n_epoch=config.check_val_every_n_epoch,
         val_check_interval=config.val_check_interval,
         accumulate_grad_batches=config.accum_grad_steps,
         max_epochs=config.max_epochs,

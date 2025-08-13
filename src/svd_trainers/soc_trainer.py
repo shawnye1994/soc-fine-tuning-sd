@@ -8,6 +8,7 @@ from video_core_utils import get_model, reinitialize_last_layer
 
 from soc_pipeline_svd import retrieve_timesteps, latent_to_decode
 from video_metrics import reward_function
+from video_asthetics_reward_utils import video_asthetics_rm_load
 from video_reward_utils import video_rm_load
 
 from SOC_EDM_Ancestral_scheduler import SOCEDMAncestralScheduler
@@ -144,6 +145,9 @@ class SOCTrainer(pl.LightningModule):
         if self.config.reward_func == "VideoReward":
             self.reward_model = video_rm_load(traj_discriminator_config=self.config.reward_model_config,
                                               device=self.device)
+        elif self.config.reward_func == "VideoAestheticsReward":
+            self.reward_model = video_asthetics_rm_load(asthetics_model_config=self.config.reward_model_config,
+                                                        device=self.device)
         else:
             raise ValueError(f"Unknown metric: {reward_func}")
         
@@ -491,8 +495,9 @@ class SOCTrainer(pl.LightningModule):
                 
                 return output.detach(), reward_values.detach()
         else:
-            # for the random query sampling method of cotracker reward model
-            assert self.config.reward_model_config['discriminator_config']['spatio_query_method'] == 'Random', "Gradient smoothing is only for the random query sampling method of cotracker reward model"
+            if self.config.reward_func == "VideoReward":
+                # for the random query sampling method of cotracker reward model
+                assert self.config.reward_model_config['discriminator_config']['spatio_query_method'] == 'Random', "Gradient smoothing is only for the random query sampling method of cotracker reward model"
             # step 1, decoding video without gradient, with a larger decod chunk size
             
             vid = latent_to_decode(model=self.soc_pipeline, output_type='pt', latents=x, decode_chunk_size=x.shape[1])

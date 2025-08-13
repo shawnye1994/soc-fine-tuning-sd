@@ -20,7 +20,7 @@ num_timesteps_to_load_train: 2
 # Paths
 save_dir: "checkpoints"
 train_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/soc-fine-tuning-sd/configs/refl_videos_pt.json"
-val_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/soc-fine-tuning-sd/configs/refl_videos_pt.json"
+val_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/soc-fine-tuning-sd/configs/refl_videos_val_pt.json"
 target_vid_size: [24, 320, 576]
 num_workers: 8
 vid_data_type: "pt"
@@ -33,19 +33,12 @@ warmup_steps: 20
 # beta_start: 0.002
 # beta_end: 0.009
 reward_multiplier: 100.0 #tradeoff between KL-div reg and the reward, larger values 
-reward_func: "VideoReward"
+reward_func: "VideoAestheticsReward"
 vae_decode_chunk_size: 8
 
 reward_model_config:
-  discriminator_config:
-    frame_size: [320, 576]
-    pretrain_cotracker_ckpt_file: '/gpfs/junlab/yexi24-postdoc/cotracker_checkpoints/scaled_offline.pth'
-    # pretrain_cotracker_ckpt_file: null
-    spatio_query_method: 'Random'
-    time_query_method: 'First'
-    max_num_queries: 1024
-
-  pretrained_ckpt: "/gpfs/junlab/yexi24-postdoc/checkpoints/MA-VDM/lc_discriminator/lc_discriminator_train_config-2025-07-27T10-27-23/lc_discriminator/lc_discriminator-45000.ckpt"
+  aesthetic_model_config:
+    clip_model: 'ViT-B-32'
 
 guidance_in_adjoint_computation: false
 guidance_in_control_computation: false
@@ -66,7 +59,7 @@ lora_config:
 resume_from_checkpoint: null
 
 # Gradient smoothing settings
-smooth_gradients: true
+smooth_gradients: false
 smooth_samples: 4
 smooth_noise_std: 0.02
 smooth_clipping_quantile: 0.85
@@ -74,7 +67,7 @@ smooth_clipping_quantile: 0.85
 # Misc
 use_tf32: true
 seed: 0
-wandb_project: "AM-SVD-buffer"
+wandb_project: "AM-SVD-Aesthetics-buffer"
 checkpoint_every_n_epochs: 1
 val_check_interval: 1.0
 check_val_every_n_epoch: 10

@@ -260,6 +260,7 @@ class BufferAMTrainer(BufferSOCTrainer, AMTrainer):
             print(f'stepwise_weights.shape: {stepwise_weights.shape}')
             print(f'{stepwise_weights}')
 
+        print('adj_states_eval', adjoint_states_eval.shape, adjoint_states_eval.min().item(), adjoint_states_eval.max().item(), adjoint_states_eval.mean().item())
         loss_evals = torch.sum(
             (control_times_sqrt_dt + adjoint_states_eval * std_dev_t) ** 2,
             dim = [2,3,4,5]
