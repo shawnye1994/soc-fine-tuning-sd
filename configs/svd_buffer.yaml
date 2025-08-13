@@ -19,8 +19,8 @@ num_timesteps_to_load_train: 2
 
 # Paths
 save_dir: "checkpoints"
-train_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/refl_videos_pt.json"
-val_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/refl_videos_pt.json"
+train_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/soc-fine-tuning-sd/configs/refl_videos_pt.json"
+val_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/soc-fine-tuning-sd/configs/refl_videos_pt.json"
 target_vid_size: [24, 320, 576]
 num_workers: 8
 vid_data_type: "pt"
@@ -41,7 +41,7 @@ reward_model_config:
     frame_size: [320, 576]
     pretrain_cotracker_ckpt_file: '/gpfs/junlab/yexi24-postdoc/cotracker_checkpoints/scaled_offline.pth'
     # pretrain_cotracker_ckpt_file: null
-    spatio_query_method: 'Grid'
+    spatio_query_method: 'Random'
     time_query_method: 'First'
     max_num_queries: 1024
 
@@ -66,8 +66,8 @@ lora_config:
 resume_from_checkpoint: null
 
 # Gradient smoothing settings
-smooth_gradients: false
-smooth_samples: 20
+smooth_gradients: true
+smooth_samples: 4
 smooth_noise_std: 0.02
 smooth_clipping_quantile: 0.85
 
@@ -76,11 +76,11 @@ use_tf32: true
 seed: 0
 wandb_project: "AM-SVD-buffer"
 checkpoint_every_n_epochs: 1
-val_check_interval: 0.1
+val_check_interval: 1.0
 verbose: false
 
 # Buffer
 use_buffer: true
 buffer_device: cpu
-buffer_size: 2
+buffer_size: 4
 passes_per_buffer: 10  # Number of training passes through each buffer before refreshing

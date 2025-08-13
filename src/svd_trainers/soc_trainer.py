@@ -8,11 +8,13 @@ from video_core_utils import get_model, reinitialize_last_layer
 
 from soc_pipeline_svd import retrieve_timesteps, latent_to_decode
 from video_metrics import reward_function
+from video_reward_utils import video_rm_load
+
 from SOC_EDM_Ancestral_scheduler import SOCEDMAncestralScheduler
 from peft import LoraConfig, get_peft_model_state_dict, set_peft_model_state_dict
 from diffusers.training_utils import cast_training_params
 # from video_core_utils import _LoraWrapper
-from einops import rearrange
+from einops import rearrange, repeat
 import gc
 # from torchviz import make_dot
 
@@ -138,13 +140,20 @@ class SOCTrainer(pl.LightningModule):
             model=self.soc_pipeline, output_type="pt", latents=x, decode_chunk_size=self.config.vae_decode_chunk_size
         )
         
-        self.reward_fn = lambda x: reward_function(
-            x,
-            traj_discriminator_config=self.config.reward_model_config,
-            device=self.device,
-            reward_func=self.config.reward_func,
-            verbose=self.config.verbose
-        )
+        # setup reward function
+        if self.config.reward_func == "VideoReward":
+            self.reward_model = video_rm_load(traj_discriminator_config=self.config.reward_model_config,
+                                              device=self.device)
+        else:
+            raise ValueError(f"Unknown metric: {reward_func}")
+        
+        # self.reward_fn = lambda x: reward_function(
+        #     x,
+        #     traj_discriminator_config=self.config.reward_model_config,
+        #     device=self.device,
+        #     reward_func=self.config.reward_func,
+        #     verbose=self.config.verbose
+        # )
 
     def _reinitialize_last_layer(self):
         """Reinitialize the last layer for offset learning"""
@@ -467,7 +476,9 @@ class SOCTrainer(pl.LightningModule):
                 vid = self.soc_pipeline.video_processor.postprocess_video(video=vid, output_type='pt')
                 # output = torch.autograd.grad(
                 #     vid, x, grad_outputs=torch.ones_like(vid))[0]
-                reward_values = self.reward_fn(vid)
+                reward_values = self.reward_model(vid)
+                if self.global_rank == 0:
+                    print('reward value', reward_values)
                 
                 output = torch.autograd.grad(
                     reward_values.sum(), x
@@ -480,44 +491,29 @@ class SOCTrainer(pl.LightningModule):
                 
                 return output.detach(), reward_values.detach()
         else:
-            batch_size = x.shape[0]
-        
-            # Store all gradients and rewards for processing after collection
-            all_grads = []
-            all_rewards = []
+            # for the random query sampling method of cotracker reward model
+            assert self.config.reward_model_config['discriminator_config']['spatio_query_method'] == 'Random', "Gradient smoothing is only for the random query sampling method of cotracker reward model"
+            # step 1, decoding video without gradient, with a larger decod chunk size
             
-            # Process each noise sample individually
-            for i in range(num_smooth_samples):
-                # Generate single noise sample
-                noise = torch.randn_like(x) * noise_std
-                noisy_x = x + noise
-                noisy_x = noisy_x.requires_grad_(True)
-                
-                # Forward pass for this single noise sample
-                with torch.enable_grad():
-                    vid = self.latent_to_decode_fn(noisy_x)
-                    rewards = self.reward_fn(vid)
-                    grads = torch.autograd.grad(rewards.sum(), noisy_x, retain_graph=False)[0]
-                
-                # Store gradients and rewards
-                all_grads.append(grads.detach())
-                all_rewards.append(rewards.detach())
-                
-                # Optional progress reporting
-                if i % 5 == 0 and self.global_rank == 0 and self.config.verbose:
-                    print(f"Smoothing progress: {i+1}/{num_smooth_samples}")
-            
-            # Stack all gradients [num_samples, batch_size, T, C, H, W]
-            all_grads = torch.stack(all_grads)
-            all_rewards = torch.stack(all_rewards)
-            
+            vid = latent_to_decode(model=self.soc_pipeline, output_type='pt', latents=x, decode_chunk_size=x.shape[1])
+            vid = self.soc_pipeline.video_processor.postprocess_video(video=vid, output_type='pt') #(B, T, C, H, W)
+            # step 2, repeat each video num_smooth_samples times, and compute the average reward gradient w.r.t each vid
+            batch_size = vid.shape[0]
+            vid = repeat(vid, 'b t c h w -> (ns b) t c h w', ns=num_smooth_samples)
+            with torch.enable_grad():
+                vid = vid.requires_grad_(True)
+                reward_values = self.reward_model(vid)
+                vid_grads = torch.autograd.grad(reward_values.sum(), vid, retain_graph=False)[0]
+            vid_grads = rearrange(vid_grads.detach(), '(ns b) t c h w -> ns b t c h w', ns=num_smooth_samples)
+            torch.cuda.empty_cache()
+            gc.collect()
+
+            # clip the gradient before average
             # Compute gradient norms: [num_samples, batch_size]
-            grad_norms = torch.norm(all_grads.view(num_smooth_samples, batch_size, -1), dim=2)
-            
-            # For each prompt, compute the quantile of the gradient norms
+            grad_norms = torch.norm(vid_grads.view(num_smooth_samples, batch_size, -1), dim=2)
+            # For each video, compute the quantile of the gradient norms
             # Shape: [batch_size]
             quantile_vals = torch.quantile(grad_norms, clip_quantile, dim=0)
-            
             # Clip the gradients - create a scaling factor
             # First, compute the max of quantile and actual norm to avoid division by zero
             # Shape: [num_samples, batch_size]
@@ -525,24 +521,99 @@ class SOCTrainer(pl.LightningModule):
                 quantile_vals.unsqueeze(0) / torch.clamp(grad_norms, min=1e-8),
                 torch.ones_like(grad_norms)
             )
-            
             # Apply scaling to each gradient
             # Reshape scaling to broadcast: [num_samples, batch_size, 1, 1, 1, 1]
             scaling = scaling.view(num_smooth_samples, batch_size, 1, 1, 1, 1)
-            clipped_grads = all_grads * scaling
+            vid_grads = vid_grads * scaling
             
-            # Average over all samples
-            avg_grads = clipped_grads.mean(dim=0)
-            avg_rewards = all_rewards.mean(dim=0)
-            
-            if self.global_rank == 0 and self.config.verbose:
-                print(f"Raw grad norm - min: {grad_norms.min().item():.4f}, max: {grad_norms.max().item():.4f}, mean: {grad_norms.mean().item():.4f}")
-                print(f"Quantile values: {quantile_vals.mean().item():.4f}")
-                print(f"Final grad norm: {torch.norm(avg_grads.view(batch_size, -1), dim=1).mean().item():.4f}")
+            # compute the mean reward values and mean grads
+            vid_grads = vid_grads.mean(dim=0) #(b t c h w)
+            reward_values = rearrange(reward_values.detach(), '(ns b) -> ns b', ns=num_smooth_samples)
+            print('reward_values', reward_values)
+            avg_rewards = reward_values.mean(dim=0) #(b,)
+            print('avg_rewards', avg_rewards)
+            print('reward grad', vid_grads.min(), vid_grads.max(), vid_grads.mean())
+            # step 3, compute the reward gradient w.r.t x
+            with torch.enable_grad():
+                # here we need to compute the vid again
+                x = x.requires_grad_(True)
+                vid = self.latent_to_decode_fn(x)
+                # postprocess -> pixel range in [0, 1]
+                vid = self.soc_pipeline.video_processor.postprocess_video(video=vid, output_type='pt')
+                # compute the reward gradient w.r.t x
+                grads = torch.autograd.grad(vid, x, grad_outputs=vid_grads)[0]
             
             torch.cuda.empty_cache()
             gc.collect()
-            return avg_grads, avg_rewards
+            self.soc_pipeline.unet.to(unet_device)
+            self.soc_pipeline.vae.encoder.to(encoder_device)
+
+            return grads.detach(), avg_rewards.detach()
+
+        # else:
+        #     batch_size = x.shape[0]
+        
+        #     # Store all gradients and rewards for processing after collection
+        #     all_grads = []
+        #     all_rewards = []
+            
+        #     # Process each noise sample individually
+        #     for i in range(num_smooth_samples):
+        #         # Generate single noise sample
+        #         noise = torch.randn_like(x) * noise_std
+        #         noisy_x = x + noise
+        #         noisy_x = noisy_x.requires_grad_(True)
+                
+        #         # Forward pass for this single noise sample
+        #         with torch.enable_grad():
+        #             vid = self.latent_to_decode_fn(noisy_x)
+        #             rewards = self.reward_fn(vid)
+        #             grads = torch.autograd.grad(rewards.sum(), noisy_x, retain_graph=False)[0]
+                
+        #         # Store gradients and rewards
+        #         all_grads.append(grads.detach())
+        #         all_rewards.append(rewards.detach())
+                
+        #         # Optional progress reporting
+        #         if i % 5 == 0 and self.global_rank == 0 and self.config.verbose:
+        #             print(f"Smoothing progress: {i+1}/{num_smooth_samples}")
+            
+        #     # Stack all gradients [num_samples, batch_size, T, C, H, W]
+        #     all_grads = torch.stack(all_grads)
+        #     all_rewards = torch.stack(all_rewards)
+            
+        #     # Compute gradient norms: [num_samples, batch_size]
+        #     grad_norms = torch.norm(all_grads.view(num_smooth_samples, batch_size, -1), dim=2)
+            
+        #     # For each prompt, compute the quantile of the gradient norms
+        #     # Shape: [batch_size]
+        #     quantile_vals = torch.quantile(grad_norms, clip_quantile, dim=0)
+            
+        #     # Clip the gradients - create a scaling factor
+        #     # First, compute the max of quantile and actual norm to avoid division by zero
+        #     # Shape: [num_samples, batch_size]
+        #     scaling = torch.minimum(
+        #         quantile_vals.unsqueeze(0) / torch.clamp(grad_norms, min=1e-8),
+        #         torch.ones_like(grad_norms)
+        #     )
+            
+        #     # Apply scaling to each gradient
+        #     # Reshape scaling to broadcast: [num_samples, batch_size, 1, 1, 1, 1]
+        #     scaling = scaling.view(num_smooth_samples, batch_size, 1, 1, 1, 1)
+        #     clipped_grads = all_grads * scaling
+            
+        #     # Average over all samples
+        #     avg_grads = clipped_grads.mean(dim=0)
+        #     avg_rewards = all_rewards.mean(dim=0)
+            
+        #     if self.global_rank == 0 and self.config.verbose:
+        #         print(f"Raw grad norm - min: {grad_norms.min().item():.4f}, max: {grad_norms.max().item():.4f}, mean: {grad_norms.mean().item():.4f}")
+        #         print(f"Quantile values: {quantile_vals.mean().item():.4f}")
+        #         print(f"Final grad norm: {torch.norm(avg_grads.view(batch_size, -1), dim=1).mean().item():.4f}")
+            
+        #     torch.cuda.empty_cache()
+        #     gc.collect()
+        #     return avg_grads, avg_rewards
     
     def log_metrics(self, prefix, metrics_dict, batch_size):
         """Log all metrics with consistent naming and parameters"""

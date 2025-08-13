@@ -164,7 +164,6 @@ class AMTrainer(SOCTrainer):
             all_noise_pred_init = torch.zeros_like(all_x_t[:, :-1])
             a = -self.config.reward_multiplier * reward_grads.to(torch.float32)
             adjoint_states[:,-1] = a
-
             for k in range(num_timesteps - 2, -1, -1):
                 grad_inner_prod, noise_pred_init = self.grad_inner_product(
                     all_x_t[:,k],
@@ -175,6 +174,7 @@ class AMTrainer(SOCTrainer):
                     added_time_ids,
                     **kwargs,
                 )
+                print('grad_inner_prod', grad_inner_prod.min(), grad_inner_prod.max(), grad_inner_prod.mean())
                 a += grad_inner_prod
                 adjoint_states[:,k] = a
                 if self.global_rank == 0 and self.config.verbose:
@@ -221,8 +221,9 @@ class AMTrainer(SOCTrainer):
         )
         
         # Sample second half from later timesteps (more structure)
+        # here we use num_timesteps - 1 to omit the sampling of last timestep (t = -1.5537), since it has a sigma_up==0 -> std_dev_t == 0
         indices_t_2 = np.random.choice(
-            np.arange(middle_timestep, num_timesteps), 
+            np.arange(middle_timestep, num_timesteps - 1), 
             num_timesteps_to_load - num_timesteps_to_load // 2, 
             replace=False
         )
