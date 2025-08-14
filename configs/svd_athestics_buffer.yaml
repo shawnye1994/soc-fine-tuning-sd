@@ -4,7 +4,7 @@ num_inference_steps: 25
 
 # Optimization settings
 optimizer: "adamw"
-lr: 3.0e-6
+lr: 1.0e-4
 beta1: 0.9
 beta2: 0.95
 batch_size: 1
@@ -49,11 +49,11 @@ learn_offset: false
 
 # Lora config
 lora_adapter_name: "motion_adapter"
-only_lora_on_temporal_module: true
+only_lora_on_temporal_module: false
 lora_precision: "bfloat16" # options: ["fp32", "bfloat16", "fp16"]
 lora_config:
   r: 4
-  lora_alpha: 4
+  lora_alpha: 4 #s = lora_alpha / r, w' = w + s * AB
   init_lora_weights: "gaussian"
   target_modules: ["to_k", "to_q", "to_v", "to_out.0"]
 resume_from_checkpoint: null
@@ -76,5 +76,5 @@ verbose: false
 # Buffer
 use_buffer: true
 buffer_device: cpu
-buffer_size: 4
+buffer_size: 8
 passes_per_buffer: 10  # Number of training passes through each buffer before refreshing
