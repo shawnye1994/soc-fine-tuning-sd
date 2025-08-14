@@ -76,6 +76,15 @@ class SOCTrainer(pl.LightningModule):
                     for m in lora_config['target_modules']:
                         if m in k:
                             motion_target_modules.append(k)
+        else:
+            # inject lora to all blocks other than temporal_transformer_blocks
+            # used in the aethestics finetuning debug
+            motion_target_modules = []
+            for k, _ in self.unet.named_modules():
+                if "temporal_transformer_blocks" not in k:
+                    for m in lora_config['target_modules']:
+                        if m in k:
+                            motion_target_modules.append(k)
         lora_config['target_modules'] = motion_target_modules
         unet_lora_config = LoraConfig(**lora_config)
         # Add adapter and make sure the trainable params are in float32.
