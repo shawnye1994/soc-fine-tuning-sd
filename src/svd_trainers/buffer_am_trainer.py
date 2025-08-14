@@ -321,15 +321,15 @@ class BufferAMTrainer(BufferSOCTrainer, AMTrainer):
         batch_idx_within_chunk = batch_idx % self.iterations_per_chunk
         t = self.time_steps
 
-        image_latents = self.buffer['image_latents'][batch_idx_within_chunk]
-        image_embeddings = self.buffer['image_embeddings'][batch_idx_within_chunk]
-        added_time_ids = self.buffer['added_time_ids'][batch_idx_within_chunk]
-        x_t = self.buffer['trajectories'][batch_idx_within_chunk]
-        adjoint_states = self.buffer['adjoint_states'][batch_idx_within_chunk]
-        reward_values = self.buffer['rewards'][batch_idx_within_chunk]
-        noise_preds = self.buffer['noise_preds'][batch_idx_within_chunk]
-        noise_preds_init = self.buffer['noise_preds_init'][batch_idx_within_chunk]
-        random_noises = self.buffer['random_noises'][batch_idx_within_chunk]
+        image_latents = self.buffer['image_latents'][batch_idx_within_chunk].to(self.device, non_blocking=True)
+        image_embeddings = self.buffer['image_embeddings'][batch_idx_within_chunk].to(self.device, non_blocking=True)
+        added_time_ids = self.buffer['added_time_ids'][batch_idx_within_chunk].to(self.device, non_blocking=True)
+        x_t = self.buffer['trajectories'][batch_idx_within_chunk].to(self.device, non_blocking=True)
+        adjoint_states = self.buffer['adjoint_states'][batch_idx_within_chunk].to(self.device, non_blocking=True)
+        reward_values = self.buffer['rewards'][batch_idx_within_chunk].to(self.device, non_blocking=True)
+        noise_preds = self.buffer['noise_preds'][batch_idx_within_chunk].to(self.device, non_blocking=True)
+        noise_preds_init = self.buffer['noise_preds_init'][batch_idx_within_chunk].to(self.device, non_blocking=True)
+        random_noises = self.buffer['random_noises'][batch_idx_within_chunk].to(self.device, non_blocking=True)
 
         return image_latents, image_embeddings, added_time_ids, x_t, t, adjoint_states, reward_values, noise_preds, noise_preds_init, random_noises
 

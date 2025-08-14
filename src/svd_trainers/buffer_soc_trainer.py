@@ -51,6 +51,7 @@ class BufferSOCTrainer(SOCTrainer):
     def on_train_batch_end(self, outputs, batch, batch_idx):
         # If we just finished all passes through a buffer:
         if (batch_idx + 1) % self.buffer_update_frequency == 0:
+            # num_chunks = len(data_source) // chunk_size, where chunk_size = buffer_size
             current_chunk = ((batch_idx + 1) // self.buffer_update_frequency) + 1
             self.recompute_buffer(current_chunk)
             self.current_pass = 0
@@ -62,6 +63,11 @@ class BufferSOCTrainer(SOCTrainer):
             print(f"Buffer reshuffled. Starting pass {self.current_pass + 1}/{self.passes_per_buffer} through the current buffer")
 
     def recompute_buffer(self, chunk_id):
+        """The whole train dataset is divided into num_chunks = len(data_source) // buffer_size
+        For example, len(train_source) = 8, buffer_size = 4, then num_chunks = 2
+        epoch_chunks would be some random exmaple indices like [[4,1,5,2], [0,3,6,7]] (two chunks, each chunk has buffer_size examples)
+        get_chunk_indices(zero_based_chunk) will fetch a list of examples from epoch_chunks, like [4, 1, 5, 2], as the local_indices for all GPUs to train (the current buffer)
+        """
         # chunk_id is 1-based in our quick calculation above
         # but our sampler's chunk indexing is 0-based
         zero_based_chunk = chunk_id - 1
@@ -108,12 +114,20 @@ class BufferSOCTrainer(SOCTrainer):
             data_dict = {'gt_video': torch.stack([p[0] for p in batch_vid_image]), 'init_frame': torch.stack([p[1] for p in batch_vid_image])}
             # trajectories, adjoints, rewards, random_noises, noise_preds, noise_preds_init, prompt_embeds, negative_prompt_embeds = self.collect_data(prompts_dict, batch_start)
             collected_data = self.collect_data(data_dict['init_frame'], batch_start)
+
+            # move the collected data to the buffer device if buffer device is cpu
+            for var in self.buffer_variables:
+                data = collected_data[var]
+                if isinstance(data, torch.Tensor) and self.buffer_device == 'cpu':
+                    collected_data[var] = data.to(self.buffer_device, non_blocking=True).pin_memory()
             
             # Accumulate results
             for var in self.buffer_variables:
                 self.accumulator[var].append(collected_data[var])
             
             # Free memory
+            import gc
+            gc.collect()
             torch.cuda.empty_cache()
         
         # Store lists directly in buffer - no concatenation needed
