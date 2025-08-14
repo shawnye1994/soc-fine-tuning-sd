@@ -68,6 +68,11 @@ class BufferSOCTrainer(SOCTrainer):
         epoch_chunks would be some random exmaple indices like [[4,1,5,2], [0,3,6,7]] (two chunks, each chunk has buffer_size examples)
         get_chunk_indices(zero_based_chunk) will fetch a list of examples from epoch_chunks, like [4, 1, 5, 2], as the local_indices for all GPUs to train (the current buffer)
         """
+        if next(self.soc_pipeline.vae.encoder.parameters()).device == torch.device('cpu'):
+            print('move vae to gpu')
+            self.soc_pipeline.vae.encoder.to(self.device)
+            self.soc_pipeline.vae.decoder.to(self.device)
+            
         # chunk_id is 1-based in our quick calculation above
         # but our sampler's chunk indexing is 0-based
         zero_based_chunk = chunk_id - 1
