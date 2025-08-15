@@ -16,7 +16,7 @@ def main():
     # Parse command line arguments
     config = load_config()
 
-    run_name = f"rm{config.reward_multiplier}_smooth{config.smooth_gradients}_buffer{config.use_buffer}"
+    run_name = f"rm{config.reward_multiplier}_control{config.control_lambda}_smooth{config.smooth_gradients}_buffer{config.use_buffer}"
      
     print(f"Run name: {run_name}")
     

@@ -262,7 +262,7 @@ class BufferAMTrainer(BufferSOCTrainer, AMTrainer):
 
         print('adj_states_eval', adjoint_states_eval.shape, adjoint_states_eval.min().item(), adjoint_states_eval.max().item(), adjoint_states_eval.mean().item())
         loss_evals = torch.sum(
-            (control_times_sqrt_dt + adjoint_states_eval * std_dev_t) ** 2,
+            (self.config.control_lambda * control_times_sqrt_dt + adjoint_states_eval * std_dev_t) ** 2,
             dim = [2,3,4,5]
         )
         ## control_times_sqrt_dt = \sqrt{\delta} u(x_t,t)

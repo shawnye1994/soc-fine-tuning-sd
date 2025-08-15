@@ -35,6 +35,7 @@ warmup_steps: 20
 reward_multiplier: 100.0 #tradeoff between KL-div reg and the reward, larger values 
 reward_func: "VideoAestheticsReward"
 vae_decode_chunk_size: 8
+control_lambda: 0. #default value is 1.0
 
 reward_model_config:
   aesthetic_model_config:
@@ -59,8 +60,8 @@ lora_config:
 resume_from_checkpoint: null
 
 # Gradient smoothing settings
-smooth_gradients: false
-smooth_samples: 4
+smooth_gradients: true
+smooth_samples: 1
 smooth_noise_std: 0.02
 smooth_clipping_quantile: 0.85
 
@@ -76,5 +77,5 @@ verbose: false
 # Buffer
 use_buffer: true
 buffer_device: cpu
-buffer_size: 2
+buffer_size: 16
 passes_per_buffer: 10  # Number of training passes through each buffer before refreshing
