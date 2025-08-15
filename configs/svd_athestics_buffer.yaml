@@ -19,11 +19,11 @@ num_timesteps_to_load_train: 2
 
 # Paths
 save_dir: "checkpoints"
-train_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/soc-fine-tuning-sd/configs/refl_videos_pt.json"
-val_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/soc-fine-tuning-sd/configs/refl_videos_val_pt.json"
+train_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/soc-fine-tuning-sd/configs/refl_cat_videos.json"
+val_video_path_json: "/gpfs-flash/junlab/yexi24-postdoc/soc-fine-tuning-sd/configs/refl_cat_videos_val.json"
 target_vid_size: [24, 320, 576]
 num_workers: 8
-vid_data_type: "pt"
+vid_data_type: "mp4"
 
 # Scheduler settings
 scheduler: "linear_warmup"
@@ -67,7 +67,7 @@ smooth_clipping_quantile: 0.85
 # Misc
 use_tf32: true
 seed: 0
-wandb_project: "AM-SVD-Aesthetics-buffer"
+wandb_project: "AM-SVD-Aesthetics-cat-buffer"
 checkpoint_every_n_epochs: 1
 val_check_interval: 1.0
 check_val_every_n_epoch: 10
@@ -76,5 +76,5 @@ verbose: false
 # Buffer
 use_buffer: true
 buffer_device: cpu
-buffer_size: 8
+buffer_size: 2
 passes_per_buffer: 10  # Number of training passes through each buffer before refreshing

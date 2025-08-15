@@ -5,6 +5,11 @@ import pytorch_lightning as pl
 import gc
 from svd_trainers.soc_trainer import SOCTrainer
 from torch.amp import autocast
+import wandb
+import tempfile
+import imageio
+import os
+from pathlib import Path
 
 class AMTrainer(SOCTrainer):
     """
@@ -479,7 +484,14 @@ class AMTrainer(SOCTrainer):
 
             # Return dummy values for consistency with the full evaluation
             dummy_val = torch.tensor(0.0, device=reward_values.device)
-            return dummy_val, torch.mean(reward_values), control_norm, dummy_val, prev_sample_norm
+
+            # decode an example for log
+            with torch.no_grad():
+                vid_example = self.latent_to_decode_fn(all_x_t[:,-1])
+                # postprocess -> pixel range in [0, 1]
+                vid_example = self.soc_pipeline.video_processor.postprocess_video(video=vid_example, output_type='pt')
+
+            return dummy_val, torch.mean(reward_values), control_norm, dummy_val, prev_sample_norm, vid_example
         else:
             return self.compute_loss(
                 batch,
@@ -573,7 +585,7 @@ class AMTrainer(SOCTrainer):
 
         batch = self.generate_trajectories_eval(batch, batch_idx)
         with torch.no_grad():
-            val_loss, val_reward_mean, val_control_norm, val_AM_target_norm, val_prev_sample_norm = self.compute_evaluation_loss(
+            val_loss, val_reward_mean, val_control_norm, val_AM_target_norm, val_prev_sample_norm, vid_example = self.compute_evaluation_loss(
                 batch,
                 batch_idx,
                 num_timesteps_to_load=self.config.num_timesteps_to_load_train,
@@ -604,6 +616,12 @@ class AMTrainer(SOCTrainer):
                 batch_size=batch_size,
             )
             
+            # Log video examples if available
+            if vid_example is not None and batch_idx % 10 == 0:  # Log every 10th batch to avoid spam
+                self.log_video_to_wandb(vid_example, prefix="val", max_videos=2)
+            if vid_example is not None:
+                del vid_example
+
             del val_reward_mean, val_control_norm, val_AM_target_norm, val_prev_sample_norm
             torch.cuda.empty_cache()
             return val_loss
@@ -626,3 +644,78 @@ class AMTrainer(SOCTrainer):
     def load_from_checkpoint(cls, checkpoint_path, config=None, **kwargs):
         # Use the parent class's load_from_checkpoint method
         return super().load_from_checkpoint(checkpoint_path, config=config, **kwargs)
+    
+    def log_video_to_wandb(self, vid_example, prefix="val", max_videos=2):
+        """
+        Log video tensor to wandb as mp4.
+        
+        Args:
+            vid_example: Video tensor with shape (B, T, 3, H, W) in range [0, 1]
+            prefix: Logging prefix (e.g., "val", "train")
+            max_videos: Maximum number of videos to log from the batch
+        """
+        if not hasattr(self.logger, 'experiment') or not isinstance(self.logger.experiment, wandb.sdk.wandb_run.Run):
+            print('no wandb logger')
+            return  # Skip if not using wandb logger
+            
+        # Get wandb run directory
+        wandb_dir = Path(self.logger.experiment.dir)
+        
+        # Create videos subdirectory in wandb logs
+        videos_dir = wandb_dir / "videos"
+        videos_dir.mkdir(exist_ok=True)
+        
+        # Convert tensor to numpy and ensure correct format
+        vid_np = vid_example.detach().cpu().numpy()  # (B, T, 3, H, W)
+        
+        # Log a few videos from the batch
+        num_videos = min(vid_np.shape[0], max_videos)
+        
+        videos_to_log = []
+        saved_video_paths = []
+        
+        # Create unique identifier for this logging event
+        step = self.global_step
+        epoch = self.current_epoch if hasattr(self, 'current_epoch') else 0
+        
+        for i in range(num_videos):
+            video = vid_np[i]  # (T, 3, H, W)
+            # Convert from (T, 3, H, W) to (T, H, W, 3) and scale to 0-255
+            video = np.transpose(video, (0, 2, 3, 1))  # (T, H, W, 3)
+            video = (video * 255).astype(np.uint8)
+            
+            # Create filename with step, epoch, and video index
+            video_filename = f"{prefix}_step_{step}_epoch_{epoch}_video_{i}.mp4"
+            video_path = videos_dir / video_filename
+            
+            try:
+                # Save video to local wandb directory
+                imageio.mimsave(str(video_path), video, fps=8)
+                saved_video_paths.append(str(video_path))
+                
+                # Create wandb Video object using the saved file
+                videos_to_log.append(wandb.Video(str(video_path), caption=f"Video {i} (Step {step})"))
+                
+            except Exception as e:
+                print(f"Error saving video {i}: {e}")
+                continue
+        
+        # Log all videos to wandb
+        if videos_to_log:
+            try:
+                self.logger.experiment.log({
+                    f"{prefix}/videos": videos_to_log,
+                    "global_step": step
+                })
+                
+                # Also log the file paths for reference
+                self.logger.experiment.log({
+                    f"{prefix}/video_paths": saved_video_paths,
+                    "global_step": step
+                })
+                
+                print(f"Successfully logged {len(videos_to_log)} videos to wandb and saved to {videos_dir}")
+                
+            except Exception as e:
+                print(f"Error logging videos to wandb: {e}")
+
