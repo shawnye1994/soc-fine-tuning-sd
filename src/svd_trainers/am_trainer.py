@@ -579,6 +579,46 @@ class AMTrainer(SOCTrainer):
 
         return train_loss
     
+    def on_before_optimizer_step(self, optimizer):
+        """Called before optimizer.step()"""
+        # Log gradients before optimizer step
+        grad_metrics = self.log_gradients()
+        # Log gradient metrics
+        self.log_metrics(
+            prefix="train", 
+            metrics_dict=grad_metrics,
+            batch_size=self.config.batch_size,
+        )
+
+    def log_gradients(self):
+        """
+        Log gradient statistics for trainable parameters.
+        
+        Returns:
+            Dictionary of gradient metrics
+        """
+        grad_metrics = {}
+        
+        # Calculate gradient norms for different parameter groups
+        total_grad_norm = 0.0
+        lora_grad_norm = 0.0
+        
+        for name, param in self.named_parameters():
+            if param.requires_grad and param.grad is not None:
+                param_grad_norm = param.grad.norm(2)
+                # Log specific parameter groups
+                if 'lora' in name.lower():
+                    lora_grad_norm += param_grad_norm ** 2
+
+        # Calculate final norms
+        lora_grad_norm = lora_grad_norm ** 0.5
+        
+        grad_metrics.update({
+            "grad_norm_lora": lora_grad_norm.detach(),
+        })
+        print(grad_metrics)
+        return grad_metrics
+
     def evaluate_step(self, batch, batch_idx, stage):
         gpu_num = torch.cuda.current_device()
         pl.seed_everything(gpu_num + self.config.seed + 10 * batch_idx)
