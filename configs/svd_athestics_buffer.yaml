@@ -35,7 +35,7 @@ warmup_steps: 20
 reward_multiplier: 100.0 #tradeoff between KL-div reg and the reward, larger values 
 reward_func: "VideoAestheticsReward"
 vae_decode_chunk_size: 8
-control_lambda: 0. #default value is 1.0
+control_lambda: 1. #default value is 1.0
 
 reward_model_config:
   aesthetic_model_config:

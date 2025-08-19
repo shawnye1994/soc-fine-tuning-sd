@@ -97,7 +97,7 @@ class SOCTrainer(pl.LightningModule):
             cast_training_params(self.unet, dtype=torch.float32)
 
         lora_layers = list(filter(lambda p: p.requires_grad, self.unet.parameters()))
-        trainable_params = lora_layers
+        self.trainable_params = lora_layers
         # count the totale number of parameters in the lora_layers
         total_params = sum(p.numel() for p in lora_layers)
         print(f"Total trainable LoRA parameters: {total_params/1e6} M")
@@ -209,7 +209,7 @@ class SOCTrainer(pl.LightningModule):
         """Setup optimizer and learning rate scheduler"""
         if self.config.optimizer == "adamw":
             optimizer = torch.optim.AdamW(
-                self.unet.parameters(), 
+                self.trainable_params, 
                 lr=self.config.lr,
                 betas=(self.config.beta1, self.config.beta2), 
                 weight_decay=0.0
