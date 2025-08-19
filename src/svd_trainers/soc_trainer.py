@@ -17,6 +17,7 @@ from diffusers.training_utils import cast_training_params
 # from video_core_utils import _LoraWrapper
 from einops import rearrange, repeat
 import gc
+from pathlib import Path
 # from torchviz import make_dot
 
 
