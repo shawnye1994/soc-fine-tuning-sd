@@ -4,7 +4,7 @@ num_inference_steps: 25
 
 # Optimization settings
 optimizer: "adamw"
-lr: 3.0e-6
+lr: 1.0e-4
 beta1: 0.9
 beta2: 0.95
 batch_size: 1
@@ -35,6 +35,8 @@ warmup_steps: 20
 reward_multiplier: 100.0 #tradeoff between KL-div reg and the reward, larger values 
 reward_func: "VideoReward"
 vae_decode_chunk_size: 8
+control_lambda: 1. #default value is 1.0
+non_saturated_grad_reward: true
 
 reward_model_config:
   discriminator_config:
@@ -82,6 +84,6 @@ verbose: false
 
 # Buffer
 use_buffer: true
-buffer_device: cpu
-buffer_size: 4
+buffer_device: "cpu"
+buffer_size: 16
 passes_per_buffer: 10  # Number of training passes through each buffer before refreshing

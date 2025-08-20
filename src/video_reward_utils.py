@@ -7,7 +7,7 @@ from omegaconf import OmegaConf
 from einops import rearrange
 from typing import Dict
 
-class VideReward(nn.Module):
+class VideoReward(nn.Module):
     def __init__(self, config_dict):
         """
         Args:
@@ -35,6 +35,7 @@ class VideReward(nn.Module):
             vid: the video to be evaluated, shape: (B, T, C, H, W), with pixel value range [0, 1]
         Returns:
             r: the reward, shape: (B,)
+            out: the logits, shape: (B,)
         """
         # resize the video by bilinear interpolation
         height, width = self.target_frame_size
@@ -46,11 +47,11 @@ class VideReward(nn.Module):
         out = self.traj_discriminator.cotracker_forward(vid)
         r = F.sigmoid(out).squeeze(-1)
         
-        return r
+        return r.detach(), out.squeeze(-1)
 
     def forward(self, vid):
         # forward with gradient checkpointing
-        r = torch.utils.checkpoint.checkpoint(
+        r, logits = torch.utils.checkpoint.checkpoint(
             self._forward,
             vid,
             preserve_rng_state=False,
@@ -59,7 +60,7 @@ class VideReward(nn.Module):
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             
-        return r
+        return r, logits
 
     def load_pretrained_discriminator(self, model, pretrained_ckpt):
         pretrained_ckpt = torch.load(pretrained_ckpt, map_location='cpu')
@@ -110,7 +111,7 @@ def video_rm_load(
     """
     if isinstance(traj_discriminator_config, str):
         traj_discriminator_config = OmegaConf.load(traj_discriminator_config)
-    model = VideReward(traj_discriminator_config).to(device)
+    model = VideoReward(traj_discriminator_config).to(device)
 
     model.eval()
 

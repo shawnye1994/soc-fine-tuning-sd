@@ -1,6 +1,7 @@
 import torch
 import torch.distributed as dist
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.checkpoint import checkpoint
 
 import pytorch_lightning as pl
@@ -517,8 +518,15 @@ class SOCTrainer(pl.LightningModule):
             vid = repeat(vid, 'b t c h w -> (ns b) t c h w', ns=num_smooth_samples)
             with torch.enable_grad():
                 vid = vid.requires_grad_(True)
-                reward_values = self.reward_model(vid)
-                vid_grads = torch.autograd.grad(reward_values.sum(), vid, retain_graph=False)[0]
+                reward_values, logits = self.reward_model(vid)
+                if self.config.non_saturated_grad_reward:
+                    # use the non-saturated gradient of logits
+                    targets = torch.ones_like(logits)
+                    loss_G = F.binary_cross_entropy_with_logits(logits, targets, reduction='sum')
+                    vid_grads = torch.autograd.grad(loss_G, vid, retain_graph=False)[0]
+                else:
+                    vid_grads = torch.autograd.grad(reward_values.sum(), vid, retain_graph=False)[0]
+
             vid_grads = rearrange(vid_grads.detach(), '(ns b) t c h w -> ns b t c h w', ns=num_smooth_samples)
             torch.cuda.empty_cache()
             gc.collect()
@@ -564,71 +572,6 @@ class SOCTrainer(pl.LightningModule):
             self.soc_pipeline.vae.encoder.to(encoder_device)
 
             return grads.detach(), avg_rewards.detach()
-
-        # else:
-        #     batch_size = x.shape[0]
-        
-        #     # Store all gradients and rewards for processing after collection
-        #     all_grads = []
-        #     all_rewards = []
-            
-        #     # Process each noise sample individually
-        #     for i in range(num_smooth_samples):
-        #         # Generate single noise sample
-        #         noise = torch.randn_like(x) * noise_std
-        #         noisy_x = x + noise
-        #         noisy_x = noisy_x.requires_grad_(True)
-                
-        #         # Forward pass for this single noise sample
-        #         with torch.enable_grad():
-        #             vid = self.latent_to_decode_fn(noisy_x)
-        #             rewards = self.reward_fn(vid)
-        #             grads = torch.autograd.grad(rewards.sum(), noisy_x, retain_graph=False)[0]
-                
-        #         # Store gradients and rewards
-        #         all_grads.append(grads.detach())
-        #         all_rewards.append(rewards.detach())
-                
-        #         # Optional progress reporting
-        #         if i % 5 == 0 and self.global_rank == 0 and self.config.verbose:
-        #             print(f"Smoothing progress: {i+1}/{num_smooth_samples}")
-            
-        #     # Stack all gradients [num_samples, batch_size, T, C, H, W]
-        #     all_grads = torch.stack(all_grads)
-        #     all_rewards = torch.stack(all_rewards)
-            
-        #     # Compute gradient norms: [num_samples, batch_size]
-        #     grad_norms = torch.norm(all_grads.view(num_smooth_samples, batch_size, -1), dim=2)
-            
-        #     # For each prompt, compute the quantile of the gradient norms
-        #     # Shape: [batch_size]
-        #     quantile_vals = torch.quantile(grad_norms, clip_quantile, dim=0)
-            
-        #     # Clip the gradients - create a scaling factor
-        #     # First, compute the max of quantile and actual norm to avoid division by zero
-        #     # Shape: [num_samples, batch_size]
-        #     scaling = torch.minimum(
-        #         quantile_vals.unsqueeze(0) / torch.clamp(grad_norms, min=1e-8),
-        #         torch.ones_like(grad_norms)
-        #     )
-            
-        #     # Apply scaling to each gradient
-        #     # Reshape scaling to broadcast: [num_samples, batch_size, 1, 1, 1, 1]
-        #     scaling = scaling.view(num_smooth_samples, batch_size, 1, 1, 1, 1)
-        #     clipped_grads = all_grads * scaling
-            
-        #     # Average over all samples
-        #     avg_grads = clipped_grads.mean(dim=0)
-        #     avg_rewards = all_rewards.mean(dim=0)
-            
-        #     if self.global_rank == 0 and self.config.verbose:
-        #         print(f"Raw grad norm - min: {grad_norms.min().item():.4f}, max: {grad_norms.max().item():.4f}, mean: {grad_norms.mean().item():.4f}")
-        #         print(f"Quantile values: {quantile_vals.mean().item():.4f}")
-        #         print(f"Final grad norm: {torch.norm(avg_grads.view(batch_size, -1), dim=1).mean().item():.4f}")
-            
-        #     torch.cuda.empty_cache()
-        #     gc.collect()
-        #     return avg_grads, avg_rewards
     
     def log_metrics(self, prefix, metrics_dict, batch_size):
         """Log all metrics with consistent naming and parameters"""
