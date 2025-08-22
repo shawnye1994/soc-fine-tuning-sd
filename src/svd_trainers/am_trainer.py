@@ -179,10 +179,10 @@ class AMTrainer(SOCTrainer):
                     added_time_ids,
                     **kwargs,
                 )
-                print('grad_inner_prod', grad_inner_prod.min(), grad_inner_prod.max(), grad_inner_prod.mean())
                 a += grad_inner_prod
                 adjoint_states[:,k] = a
                 if self.global_rank == 0 and self.config.verbose:
+                    print('grad_inner_prod', grad_inner_prod.min(), grad_inner_prod.max(), grad_inner_prod.mean())
                     print(f'k: {k}, all_t[k]: {all_t[k]}, torch.sum(a**2): {torch.sum(a**2)}, torch.sum(all_x_t[:,k]**2): {torch.sum(all_x_t[:,k]**2)}, a.dtype: {a.dtype}')
                 all_noise_pred_init[:,k] = noise_pred_init
                 del grad_inner_prod, noise_pred_init
@@ -616,7 +616,7 @@ class AMTrainer(SOCTrainer):
         grad_metrics.update({
             "grad_norm_lora": lora_grad_norm.detach(),
         })
-        print(grad_metrics)
+        # print(grad_metrics)
         return grad_metrics
 
     def evaluate_step(self, batch, batch_idx, stage):
@@ -657,7 +657,7 @@ class AMTrainer(SOCTrainer):
             )
             
             # Log video examples if available
-            if vid_example is not None and batch_idx % 10 == 0:  # Log every 10th batch to avoid spam
+            if vid_example is not None and batch_idx % self.config.log_val_video_batch_interval == 0:  # Log every 10th batch to avoid spam
                 self.log_video_to_wandb(vid_example, prefix="val", max_videos=2)
             if vid_example is not None:
                 del vid_example

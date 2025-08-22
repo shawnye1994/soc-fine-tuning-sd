@@ -523,7 +523,7 @@ class SOCTrainer(pl.LightningModule):
                     # use the non-saturated gradient of logits
                     targets = torch.ones_like(logits)
                     loss_G = F.binary_cross_entropy_with_logits(logits, targets, reduction='sum')
-                    vid_grads = torch.autograd.grad(loss_G, vid, retain_graph=False)[0]
+                    vid_grads = -torch.autograd.grad(loss_G, vid, retain_graph=False)[0]
                 else:
                     vid_grads = torch.autograd.grad(reward_values.sum(), vid, retain_graph=False)[0]
 
@@ -552,10 +552,10 @@ class SOCTrainer(pl.LightningModule):
             # compute the mean reward values and mean grads
             vid_grads = vid_grads.mean(dim=0) #(b t c h w)
             reward_values = rearrange(reward_values.detach(), '(ns b) -> ns b', ns=num_smooth_samples)
-            print('reward_values', reward_values)
+            # print('reward_values', reward_values)
             avg_rewards = reward_values.mean(dim=0) #(b,)
-            print('avg_rewards', avg_rewards)
-            print('reward grad', vid_grads.min(), vid_grads.max(), vid_grads.mean())
+            # print('avg_rewards', avg_rewards)
+            # print('reward grad', vid_grads.min(), vid_grads.max(), vid_grads.mean())
             # step 3, compute the reward gradient w.r.t x
             with torch.enable_grad():
                 # here we need to compute the vid again
