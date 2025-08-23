@@ -491,13 +491,17 @@ class SOCTrainer(pl.LightningModule):
                 vid = self.soc_pipeline.video_processor.postprocess_video(video=vid, output_type='pt')
                 # output = torch.autograd.grad(
                 #     vid, x, grad_outputs=torch.ones_like(vid))[0]
-                reward_values = self.reward_model(vid)
+                reward_values, logits = self.reward_model(vid)
                 if self.global_rank == 0:
                     print('reward value', reward_values)
                 
-                output = torch.autograd.grad(
-                    reward_values.sum(), x
-                )[0]
+                if self.config.non_saturated_grad_reward:
+                    # use the non-saturated gradient of logits
+                    targets = torch.ones_like(logits)
+                    loss_G = F.binary_cross_entropy_with_logits(logits, targets, reduction='sum')
+                    output = -torch.autograd.grad(loss_G, vid, retain_graph=False)[0]
+                else:
+                    output = torch.autograd.grad(reward_values.sum(), vid, retain_graph=False)[0]
 
                 torch.cuda.empty_cache()
                 gc.collect()
